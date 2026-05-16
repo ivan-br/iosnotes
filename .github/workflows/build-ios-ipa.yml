@@ -72,6 +72,10 @@ jobs:
           mkdir -p Payload
           cp -R "$APP_PATH" Payload/
 
+          test -f Payload/*.app/main.jsbundle
+          test -f Payload/*.app/Assets.car
+          test -x Payload/*.app/${{ steps.detect.outputs.scheme }}
+
           /usr/bin/zip -qry MyNotes.ipa Payload
 
       - name: Upload IPA artifact
