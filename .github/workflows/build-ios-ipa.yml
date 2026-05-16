@@ -34,11 +34,13 @@ jobs:
           WORKSPACE=$(find ios -name "*.xcworkspace" | head -n 1)
           echo "workspace=$WORKSPACE" >> $GITHUB_OUTPUT
 
-          SCHEME=$(xcodebuild -list -json -workspace "$WORKSPACE" | ruby -rjson -e 'puts JSON.parse(STDIN.read)["workspace"]["schemes"][0]')
+          PROJECT=$(find ios -maxdepth 1 -name "*.xcodeproj" | head -n 1)
+          SCHEME=$(basename "$PROJECT" .xcodeproj)
           echo "scheme=$SCHEME" >> $GITHUB_OUTPUT
 
           echo "Workspace: $WORKSPACE"
           echo "Scheme: $SCHEME"
+          xcodebuild -list -workspace "$WORKSPACE"
 
       - name: Build unsigned iOS app
         run: |
@@ -51,18 +53,26 @@ jobs:
             -derivedDataPath build \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGN_IDENTITY=""
+            CODE_SIGN_IDENTITY="" \
+            build
 
       - name: Package IPA
         run: |
-          APP_PATH=$(find build/Build/Products/Release-iphoneos -name "*.app" | head -n 1)
+          APP_PATH=$(find build -type d -name "*.app" -path "*Release-iphoneos*" | head -n 1)
 
           echo "App path: $APP_PATH"
 
+          if [ -z "$APP_PATH" ]; then
+            echo "No .app bundle found under build/. Available build products:"
+            find build -maxdepth 6 -print
+            exit 1
+          fi
+
+          rm -rf Payload MyNotes.ipa
           mkdir -p Payload
           cp -R "$APP_PATH" Payload/
 
-          zip -r MyNotes.ipa Payload
+          /usr/bin/zip -qry MyNotes.ipa Payload
 
       - name: Upload IPA artifact
         uses: actions/upload-artifact@v4
