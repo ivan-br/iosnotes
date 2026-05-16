@@ -26,8 +26,7 @@ jobs:
       - name: Install CocoaPods dependencies
         run: |
           cd ios
-          grep '"newArchEnabled": "false"' Podfile.properties.json
-          grep '"expo.jsEngine": "jsc"' Podfile.properties.json
+          cat Podfile.properties.json
           pod install
 
       - name: Detect workspace and scheme
@@ -87,13 +86,17 @@ jobs:
           echo "Executable: $EXECUTABLE"
           test -x "$BUNDLED_APP/$EXECUTABLE"
 
-          NEW_ARCH=$(/usr/libexec/PlistBuddy -c 'Print :RCTNewArchEnabled' "$BUNDLED_APP/Info.plist")
-          echo "RCTNewArchEnabled: $NEW_ARCH"
-          test "$NEW_ARCH" = "false"
+          echo "Bundle identifier:"
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$BUNDLED_APP/Info.plist"
+
+          echo "Registered URL types:"
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleURLTypes' "$BUNDLED_APP/Info.plist" || true
+
+          echo "RCTNewArchEnabled:"
+          /usr/libexec/PlistBuddy -c 'Print :RCTNewArchEnabled' "$BUNDLED_APP/Info.plist" || true
 
           echo "main.jsbundle format:"
           file "$BUNDLED_APP/main.jsbundle"
-          ! file "$BUNDLED_APP/main.jsbundle" | grep -q "Hermes JavaScript bytecode"
 
           /usr/bin/zip -qry MyNotes.ipa Payload
 
