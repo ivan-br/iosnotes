@@ -75,21 +75,25 @@ jobs:
           rm -rf Payload MyNotes.ipa
           mkdir -p Payload
           cp -R "$APP_PATH" Payload/
+          BUNDLED_APP="Payload/$(basename "$APP_PATH")"
 
           echo "Packaged app contents:"
           find Payload -maxdepth 3 -print
 
-          test -f Payload/*.app/main.jsbundle
-          test -f Payload/*.app/Assets.car
-          test -x Payload/*.app/${{ steps.detect.outputs.scheme }}
+          test -f "$BUNDLED_APP/main.jsbundle"
+          test -f "$BUNDLED_APP/Assets.car"
 
-          NEW_ARCH=$(/usr/libexec/PlistBuddy -c 'Print :RCTNewArchEnabled' Payload/*.app/Info.plist)
+          EXECUTABLE=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$BUNDLED_APP/Info.plist")
+          echo "Executable: $EXECUTABLE"
+          test -x "$BUNDLED_APP/$EXECUTABLE"
+
+          NEW_ARCH=$(/usr/libexec/PlistBuddy -c 'Print :RCTNewArchEnabled' "$BUNDLED_APP/Info.plist")
           echo "RCTNewArchEnabled: $NEW_ARCH"
           test "$NEW_ARCH" = "false"
 
           echo "main.jsbundle format:"
-          file Payload/*.app/main.jsbundle
-          ! file Payload/*.app/main.jsbundle | grep -q "Hermes JavaScript bytecode"
+          file "$BUNDLED_APP/main.jsbundle"
+          ! file "$BUNDLED_APP/main.jsbundle" | grep -q "Hermes JavaScript bytecode"
 
           /usr/bin/zip -qry MyNotes.ipa Payload
 

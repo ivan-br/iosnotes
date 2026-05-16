@@ -1,10 +1,36 @@
 import type { ReactNode } from 'react';
-import { Component } from 'react';
+import { Component, useEffect, useState } from 'react';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
+import {
+  clearError,
+  getCurrentError,
+  installGlobalErrorHandler,
+  reportError,
+  subscribeToErrors,
+} from '../src/runtime/errorStore';
+
+installGlobalErrorHandler();
+
 export default function RootLayout() {
+  const [runtimeError, setRuntimeError] = useState<Error | null>(() => getCurrentError());
+
+  useEffect(() => subscribeToErrors(setRuntimeError), []);
+
+  if (runtimeError) {
+    return (
+      <ErrorFallback
+        error={runtimeError}
+        onRetry={() => {
+          clearError();
+          setRuntimeError(null);
+        }}
+      />
+    );
+  }
+
   return (
     <RootErrorBoundary>
       <Stack
@@ -21,6 +47,24 @@ export default function RootLayout() {
       </Stack>
       <StatusBar style="dark" />
     </RootErrorBoundary>
+  );
+}
+
+type ErrorFallbackProps = {
+  error: Error;
+  onRetry: () => void;
+};
+
+function ErrorFallback({ error, onRetry }: ErrorFallbackProps) {
+  return (
+    <View style={styles.errorContainer}>
+      <Text style={styles.errorTitle}>Something went wrong</Text>
+      <Text style={styles.errorText}>{error.message}</Text>
+      <Pressable onPress={onRetry} style={styles.errorButton}>
+        <Text style={styles.errorButtonText}>Try again</Text>
+      </Pressable>
+      <StatusBar style="dark" />
+    </View>
   );
 }
 
@@ -41,17 +85,14 @@ class RootErrorBoundary extends Component<RootErrorBoundaryProps, RootErrorBound
     return { error };
   }
 
+  componentDidCatch(error: Error) {
+    reportError(error);
+  }
+
   render() {
     if (this.state.error) {
       return (
-        <View style={styles.errorContainer}>
-          <Text style={styles.errorTitle}>Something went wrong</Text>
-          <Text style={styles.errorText}>{this.state.error.message}</Text>
-          <Pressable onPress={() => this.setState({ error: null })} style={styles.errorButton}>
-            <Text style={styles.errorButtonText}>Try again</Text>
-          </Pressable>
-          <StatusBar style="dark" />
-        </View>
+        <ErrorFallback error={this.state.error} onRetry={() => this.setState({ error: null })} />
       );
     }
 
