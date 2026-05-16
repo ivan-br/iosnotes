@@ -76,11 +76,20 @@ jobs:
           mkdir -p Payload
           cp -R "$APP_PATH" Payload/
 
+          echo "Packaged app contents:"
+          find Payload -maxdepth 3 -print
+
           test -f Payload/*.app/main.jsbundle
           test -f Payload/*.app/Assets.car
           test -x Payload/*.app/${{ steps.detect.outputs.scheme }}
-          test "$(/usr/libexec/PlistBuddy -c 'Print :RCTNewArchEnabled' Payload/*.app/Info.plist)" = "false"
-          test ! -d Payload/*.app/Frameworks/hermes.framework
+
+          NEW_ARCH=$(/usr/libexec/PlistBuddy -c 'Print :RCTNewArchEnabled' Payload/*.app/Info.plist)
+          echo "RCTNewArchEnabled: $NEW_ARCH"
+          test "$NEW_ARCH" = "false"
+
+          echo "main.jsbundle format:"
+          file Payload/*.app/main.jsbundle
+          ! file Payload/*.app/main.jsbundle | grep -q "Hermes JavaScript bytecode"
 
           /usr/bin/zip -qry MyNotes.ipa Payload
 
