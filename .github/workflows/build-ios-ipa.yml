@@ -80,6 +80,7 @@ jobs:
           test -f Payload/*.app/Assets.car
           test -x Payload/*.app/${{ steps.detect.outputs.scheme }}
           test "$(/usr/libexec/PlistBuddy -c 'Print :RCTNewArchEnabled' Payload/*.app/Info.plist)" = "false"
+          test ! -d Payload/*.app/Frameworks/hermes.framework
 
           /usr/bin/zip -qry MyNotes.ipa Payload
 
