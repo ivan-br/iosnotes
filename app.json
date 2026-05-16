@@ -16,7 +16,7 @@
       "backgroundColor": "#ffffff"
     },
     "ios": {
-      "bundleIdentifier": "com.ivan.mynotesappsdk54",
+      "bundleIdentifier": "com.softddev.iosnotes",
       "supportsTablet": true
     },
     "android": {
