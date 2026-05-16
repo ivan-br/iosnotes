@@ -26,6 +26,8 @@ jobs:
       - name: Install CocoaPods dependencies
         run: |
           cd ios
+          grep '"newArchEnabled": "false"' Podfile.properties.json
+          grep '"expo.jsEngine": "jsc"' Podfile.properties.json
           pod install
 
       - name: Detect workspace and scheme
@@ -77,6 +79,7 @@ jobs:
           test -f Payload/*.app/main.jsbundle
           test -f Payload/*.app/Assets.car
           test -x Payload/*.app/${{ steps.detect.outputs.scheme }}
+          test "$(/usr/libexec/PlistBuddy -c 'Print :RCTNewArchEnabled' Payload/*.app/Info.plist)" = "false"
 
           /usr/bin/zip -qry MyNotes.ipa Payload
 
