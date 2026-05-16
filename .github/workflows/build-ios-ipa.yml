@@ -52,7 +52,7 @@ jobs:
             -configuration Release \
             -sdk iphoneos \
             -destination "generic/platform=iOS" \
-            -archivePath build/MyNotes.xcarchive \
+            -archivePath build/LooksmaxingProMax.xcarchive \
             SKIP_INSTALL=NO \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
@@ -61,7 +61,7 @@ jobs:
 
       - name: Package IPA
         run: |
-          APP_PATH=$(find build/MyNotes.xcarchive/Products/Applications -maxdepth 1 -type d -name "*.app" | head -n 1)
+          APP_PATH=$(find build/LooksmaxingProMax.xcarchive/Products/Applications -maxdepth 1 -type d -name "*.app" | head -n 1)
 
           echo "App path: $APP_PATH"
 
@@ -71,7 +71,7 @@ jobs:
             exit 1
           fi
 
-          rm -rf Payload MyNotes.ipa
+          rm -rf Payload LooksmaxingProMax.ipa
           mkdir -p Payload
           cp -R "$APP_PATH" Payload/
           BUNDLED_APP="Payload/$(basename "$APP_PATH")"
@@ -98,10 +98,10 @@ jobs:
           echo "main.jsbundle format:"
           file "$BUNDLED_APP/main.jsbundle"
 
-          /usr/bin/zip -qry MyNotes.ipa Payload
+          /usr/bin/zip -qry LooksmaxingProMax.ipa Payload
 
       - name: Upload IPA artifact
         uses: actions/upload-artifact@v4
         with:
-          name: MyNotes-unsigned-ipa
-          path: MyNotes.ipa
+          name: LooksmaxingProMax-unsigned-ipa
+          path: LooksmaxingProMax.ipa
