@@ -13,7 +13,6 @@ import {
 type ExchangeType = 'binance' | 'bybit';
 type MarketType = 'spot' | 'futures';
 type AppView = 'book' | 'ratio';
-type RatioPeriod = '5m' | '15m' | '30m' | '1h' | '4h' | '1d';
 type TradingSymbol = string;
 type ConnectionStatus = 'connecting' | 'live' | 'reconnecting' | 'offline';
 type BookSide = 'ask' | 'bid';
@@ -116,7 +115,8 @@ const VIEWS: AppView[] = ['book', 'ratio'];
 const DEFAULT_SYMBOL = 'BTCUSDT';
 const DEFAULT_PRICE_STEP = '200';
 const MAX_VISIBLE_ROWS = 64;
-const RATIO_PERIODS: RatioPeriod[] = ['5m', '15m', '30m', '1h', '4h', '1d'];
+const RATIO_PERIOD = '5m';
+const BYBIT_RATIO_PERIOD = '5min';
 
 const EXCHANGE_LABELS: Record<ExchangeType, string> = {
   binance: 'Binance',
@@ -131,24 +131,6 @@ const MARKET_LABELS: Record<MarketType, string> = {
 const VIEW_LABELS: Record<AppView, string> = {
   book: 'Book',
   ratio: 'Long/Short',
-};
-
-const RATIO_PERIOD_LABELS: Record<RatioPeriod, string> = {
-  '5m': '5m',
-  '15m': '15m',
-  '30m': '30m',
-  '1h': '1h',
-  '4h': '4h',
-  '1d': '1d',
-};
-
-const BYBIT_RATIO_PERIODS: Record<RatioPeriod, string> = {
-  '5m': '5min',
-  '15m': '15min',
-  '30m': '30min',
-  '1h': '1h',
-  '4h': '4h',
-  '1d': '1d',
 };
 
 const DEFAULT_SYMBOLS: Record<ExchangeType, Record<MarketType, TradingSymbol[]>> = {
@@ -177,7 +159,6 @@ export default function OrderBookScreen() {
   const [exchange, setExchange] = useState<ExchangeType>('binance');
   const [market, setMarket] = useState<MarketType>('spot');
   const [view, setView] = useState<AppView>('book');
-  const [ratioPeriod, setRatioPeriod] = useState<RatioPeriod>('5m');
   const [symbolsByVenue, setSymbolsByVenue] = useState(DEFAULT_SYMBOLS);
   const [marketAvailability, setMarketAvailability] = useState(DEFAULT_AVAILABILITY);
   const [symbol, setSymbol] = useState<TradingSymbol>(DEFAULT_SYMBOL);
@@ -452,7 +433,7 @@ export default function OrderBookScreen() {
       setRatioState((current) => ({ ...current, status: current.status === 'offline' ? 'reconnecting' : 'connecting' }));
 
       try {
-        const nextRatioState = await fetchRatioState(exchange, ratioSymbol, ratioPeriod);
+        const nextRatioState = await fetchRatioState(exchange, ratioSymbol);
 
         if (!isActive) {
           return;
@@ -478,7 +459,7 @@ export default function OrderBookScreen() {
         clearInterval(refreshTimer);
       }
     };
-  }, [exchange, ratioPeriod, ratioSymbol, view]);
+  }, [exchange, ratioSymbol, view]);
 
   const spread = useMemo(() => {
     const bestAsk = asks[0]?.price;
@@ -637,9 +618,6 @@ export default function OrderBookScreen() {
           )}
         </View>
 
-        {view === 'ratio' ? (
-          <PeriodTabs selected={ratioPeriod} onSelect={setRatioPeriod} />
-        ) : null}
       </View>
 
       {view === 'book' ? (
@@ -657,7 +635,6 @@ export default function OrderBookScreen() {
       ) : (
         <LongShortView
           exchange={exchange}
-          period={ratioPeriod}
           ratioState={ratioState}
           symbol={ratioSymbol}
         />
@@ -688,31 +665,6 @@ function SegmentedTabs<T extends string>({ items, labels, selected, onSelect }: 
         </Pressable>
       ))}
     </View>
-  );
-}
-
-type PeriodTabsProps = {
-  selected: RatioPeriod;
-  onSelect: (item: RatioPeriod) => void;
-};
-
-function PeriodTabs({ selected, onSelect }: PeriodTabsProps) {
-  return (
-    <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-      <View style={styles.periodTabs}>
-        {RATIO_PERIODS.map((item) => (
-          <Pressable
-            key={item}
-            onPress={() => onSelect(item)}
-            style={[styles.periodChip, selected === item && styles.periodChipActive]}
-          >
-            <Text style={[styles.periodChipText, selected === item && styles.periodChipTextActive]}>
-              {RATIO_PERIOD_LABELS[item]}
-            </Text>
-          </Pressable>
-        ))}
-      </View>
-    </ScrollView>
   );
 }
 
@@ -818,18 +770,19 @@ function BookRow({ level, maxQuantity, side, symbol }: BookRowProps) {
 
 type LongShortViewProps = {
   exchange: ExchangeType;
-  period: RatioPeriod;
   ratioState: RatioState;
   symbol: TradingSymbol;
 };
 
-function LongShortView({ exchange, period, ratioState, symbol }: LongShortViewProps) {
+function LongShortView({ exchange, ratioState, symbol }: LongShortViewProps) {
+  const latest = ratioState.global.at(-1);
+
   return (
     <ScrollView contentContainerStyle={styles.ratioContent} showsVerticalScrollIndicator={false}>
       <View style={styles.metaRow}>
         <Text style={styles.metaText}>{EXCHANGE_LABELS[exchange]}</Text>
         <Text style={styles.metaText}>{formatSymbol(symbol)}</Text>
-        <Text style={styles.metaText}>{RATIO_PERIOD_LABELS[period]}</Text>
+        <Text style={styles.metaText}>{statusLabel(ratioState.status)}</Text>
       </View>
 
       <RatioChart
@@ -849,6 +802,21 @@ function LongShortView({ exchange, period, ratioState, symbol }: LongShortViewPr
         subtitle={exchange === 'binance' ? 'All Positions' : 'All Position Holders'}
         title="All Positions Ratio"
       />
+
+      <View style={styles.ratioSummary}>
+        <View>
+          <Text style={styles.summaryLabel}>Current Long</Text>
+          <Text style={styles.summaryLong}>{latest ? formatPercent(latest.longRatio) : '-'}</Text>
+        </View>
+        <View>
+          <Text style={styles.summaryLabel}>Current Short</Text>
+          <Text style={styles.summaryShort}>{latest ? formatPercent(latest.shortRatio) : '-'}</Text>
+        </View>
+        <View>
+          <Text style={styles.summaryLabel}>Ratio</Text>
+          <Text style={styles.summaryValue}>{latest ? latest.longShortRatio.toFixed(3) : '-'}</Text>
+        </View>
+      </View>
     </ScrollView>
   );
 }
@@ -863,8 +831,7 @@ type RatioChartProps = {
 };
 
 function RatioChart({ longLabel, points, ratioLabel, shortLabel, subtitle, title }: RatioChartProps) {
-  const latest = points.at(-1);
-  const visiblePoints = points.slice(-60);
+  const visiblePoints = points.slice(-30);
   const ratios = visiblePoints.map((point) => point.longShortRatio);
   const minRatio = Math.min(...ratios, 1);
   const maxRatio = Math.max(...ratios, 1);
@@ -876,10 +843,7 @@ function RatioChart({ longLabel, points, ratioLabel, shortLabel, subtitle, title
           <Text style={styles.ratioTitle}>{title}</Text>
           <Text style={styles.ratioSubtitle}>{subtitle}</Text>
         </View>
-        <View style={styles.ratioValueBox}>
-          <Text style={styles.ratioValueLabel}>Ratio</Text>
-          <Text style={styles.ratioValueText}>{latest ? latest.longShortRatio.toFixed(3) : '-'}</Text>
-        </View>
+        <Text style={styles.shareGlyph}>⌁</Text>
       </View>
 
       <View style={styles.chart}>
@@ -1027,14 +991,10 @@ async function fetchOrderbookSnapshot(
   };
 }
 
-async function fetchRatioState(
-  exchange: ExchangeType,
-  symbol: TradingSymbol,
-  period: RatioPeriod
-): Promise<Omit<RatioState, 'status'>> {
+async function fetchRatioState(exchange: ExchangeType, symbol: TradingSymbol): Promise<Omit<RatioState, 'status'>> {
   if (exchange === 'binance') {
-    const topUrl = `https://fapi.binance.com/futures/data/topLongShortPositionRatio?symbol=${symbol}&period=${period}&limit=60`;
-    const globalUrl = `https://fapi.binance.com/futures/data/globalLongShortAccountRatio?symbol=${symbol}&period=${period}&limit=60`;
+    const topUrl = `https://fapi.binance.com/futures/data/topLongShortPositionRatio?symbol=${symbol}&period=${RATIO_PERIOD}&limit=30`;
+    const globalUrl = `https://fapi.binance.com/futures/data/globalLongShortAccountRatio?symbol=${symbol}&period=${RATIO_PERIOD}&limit=30`;
     const [topResponse, globalResponse] = await Promise.all([fetch(topUrl), fetch(globalUrl)]);
 
     if (!topResponse.ok || !globalResponse.ok) {
@@ -1051,7 +1011,7 @@ async function fetchRatioState(
   }
 
   const response = await fetch(
-    `https://api.bybit.com/v5/market/account-ratio?category=linear&symbol=${symbol}&period=${BYBIT_RATIO_PERIODS[period]}&limit=120`
+    `https://api.bybit.com/v5/market/account-ratio?category=linear&symbol=${symbol}&period=${BYBIT_RATIO_PERIOD}&limit=30`
   );
 
   if (!response.ok) {
@@ -1463,48 +1423,6 @@ const styles = StyleSheet.create({
   rangeInputWrap: {
     width: 112,
   },
-  periodPill: {
-    width: 112,
-  },
-  periodText: {
-    backgroundColor: '#2f2445',
-    borderColor: '#40305e',
-    borderRadius: 8,
-    borderWidth: 1,
-    color: '#66d5c6',
-    fontSize: 14,
-    fontWeight: '900',
-    minHeight: 48,
-    paddingTop: 14,
-    textAlign: 'center',
-  },
-  periodTabs: {
-    flexDirection: 'row',
-    gap: 8,
-    paddingBottom: 2,
-  },
-  periodChip: {
-    alignItems: 'center',
-    backgroundColor: '#1b102c',
-    borderColor: '#2b1c43',
-    borderRadius: 8,
-    borderWidth: 1,
-    minWidth: 54,
-    paddingHorizontal: 12,
-    paddingVertical: 9,
-  },
-  periodChipActive: {
-    backgroundColor: '#3b2a59',
-    borderColor: '#66d5c6',
-  },
-  periodChipText: {
-    color: '#9b8db4',
-    fontSize: 12,
-    fontWeight: '900',
-  },
-  periodChipTextActive: {
-    color: '#ffffff',
-  },
   inputLabel: {
     color: '#75688c',
     fontSize: 11,
@@ -1662,27 +1580,6 @@ const styles = StyleSheet.create({
     color: '#8b7aa7',
     fontSize: 20,
     fontWeight: '900',
-  },
-  ratioValueBox: {
-    alignItems: 'flex-end',
-    backgroundColor: '#1b102c',
-    borderColor: '#2b1c43',
-    borderRadius: 8,
-    borderWidth: 1,
-    minWidth: 76,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-  },
-  ratioValueLabel: {
-    color: '#75688c',
-    fontSize: 10,
-    fontWeight: '900',
-  },
-  ratioValueText: {
-    color: '#f4efff',
-    fontSize: 16,
-    fontWeight: '900',
-    marginTop: 2,
   },
   chart: {
     height: 170,
