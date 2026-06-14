@@ -10,7 +10,10 @@ import {
   type DimensionValue,
 } from 'react-native';
 
+type ExchangeType = 'binance' | 'bybit';
 type MarketType = 'spot' | 'futures';
+type AppView = 'book' | 'ratio';
+type RatioPeriod = '5m' | '15m' | '30m' | '1h' | '4h' | '1d';
 type TradingSymbol = string;
 type ConnectionStatus = 'connecting' | 'live' | 'reconnecting' | 'offline';
 type BookSide = 'ask' | 'bid';
@@ -24,13 +27,26 @@ type BookLevel = {
 
 type BookEntry = [number, number];
 
-type DepthSnapshot = {
+type RatioPoint = {
+  timestamp: number;
+  longRatio: number;
+  shortRatio: number;
+  longShortRatio: number;
+};
+
+type RatioState = {
+  global: RatioPoint[];
+  topPositions: RatioPoint[];
+  status: ConnectionStatus;
+};
+
+type BinanceDepthSnapshot = {
   lastUpdateId: number;
   bids: [string, string][];
   asks: [string, string][];
 };
 
-type DepthEvent = {
+type BinanceDepthEvent = {
   U: number;
   u: number;
   pu?: number;
@@ -38,7 +54,7 @@ type DepthEvent = {
   a: [string, string][];
 };
 
-type ExchangeInfo = {
+type BinanceExchangeInfo = {
   symbols?: {
     symbol: string;
     status?: string;
@@ -46,49 +62,124 @@ type ExchangeInfo = {
   }[];
 };
 
+type BinanceRatioItem = {
+  timestamp: string;
+  longAccount: string;
+  shortAccount: string;
+  longShortRatio: string;
+};
+
+type BybitInstrumentsInfo = {
+  retCode?: number;
+  result?: {
+    nextPageCursor?: string;
+    list?: {
+      symbol: string;
+      status?: string;
+    }[];
+  };
+};
+
+type BybitOrderbookSnapshot = {
+  retCode?: number;
+  result?: {
+    u?: number;
+    b?: [string, string][];
+    a?: [string, string][];
+  };
+};
+
+type BybitDepthMessage = {
+  topic?: string;
+  type?: 'snapshot' | 'delta';
+  data?: {
+    u?: number;
+    b?: [string, string][];
+    a?: [string, string][];
+  };
+};
+
+type BybitRatioResponse = {
+  retCode?: number;
+  result?: {
+    list?: {
+      timestamp: string;
+      buyRatio: string;
+      sellRatio: string;
+    }[];
+  };
+};
+
+const EXCHANGES: ExchangeType[] = ['binance', 'bybit'];
 const MARKETS: MarketType[] = ['spot', 'futures'];
+const VIEWS: AppView[] = ['book', 'ratio'];
 const DEFAULT_SYMBOL = 'BTCUSDT';
 const DEFAULT_PRICE_STEP = '200';
-const MAX_VISIBLE_ROWS = 40;
+const MAX_VISIBLE_ROWS = 64;
+const RATIO_PERIODS: RatioPeriod[] = ['5m', '15m', '30m', '1h', '4h', '1d'];
 
-const MARKET_CONFIG: Record<
-  MarketType,
-  {
-    label: string;
-    exchangeInfoUrl: string;
-    depthUrl: string;
-    snapshotLimit: number;
-    streamUrl: (symbol: TradingSymbol) => string;
-  }
-> = {
-  spot: {
-    label: 'Spot',
-    exchangeInfoUrl: 'https://api.binance.com/api/v3/exchangeInfo',
-    depthUrl: 'https://api.binance.com/api/v3/depth',
-    snapshotLimit: 5000,
-    streamUrl: (symbol) =>
-      `wss://stream.binance.com:9443/ws/${symbol.toLowerCase()}@depth@100ms`,
+const EXCHANGE_LABELS: Record<ExchangeType, string> = {
+  binance: 'Binance',
+  bybit: 'Bybit',
+};
+
+const MARKET_LABELS: Record<MarketType, string> = {
+  spot: 'Spot',
+  futures: 'Futures',
+};
+
+const VIEW_LABELS: Record<AppView, string> = {
+  book: 'Book',
+  ratio: 'Long/Short',
+};
+
+const RATIO_PERIOD_LABELS: Record<RatioPeriod, string> = {
+  '5m': '5m',
+  '15m': '15m',
+  '30m': '30m',
+  '1h': '1h',
+  '4h': '4h',
+  '1d': '1d',
+};
+
+const BYBIT_RATIO_PERIODS: Record<RatioPeriod, string> = {
+  '5m': '5min',
+  '15m': '15min',
+  '30m': '30min',
+  '1h': '1h',
+  '4h': '4h',
+  '1d': '1d',
+};
+
+const DEFAULT_SYMBOLS: Record<ExchangeType, Record<MarketType, TradingSymbol[]>> = {
+  binance: {
+    spot: [DEFAULT_SYMBOL, 'ETHUSDT', 'SOLUSDT'],
+    futures: [DEFAULT_SYMBOL, 'ETHUSDT', 'SOLUSDT'],
   },
-  futures: {
-    label: 'Futures',
-    exchangeInfoUrl: 'https://fapi.binance.com/fapi/v1/exchangeInfo',
-    depthUrl: 'https://fapi.binance.com/fapi/v1/depth',
-    snapshotLimit: 1000,
-    streamUrl: (symbol) =>
-      `wss://fstream.binance.com/public/stream?streams=${symbol.toLowerCase()}@depth@100ms`,
+  bybit: {
+    spot: [DEFAULT_SYMBOL, 'ETHUSDT', 'SOLUSDT'],
+    futures: [DEFAULT_SYMBOL, 'ETHUSDT', 'SOLUSDT'],
+  },
+};
+
+const DEFAULT_AVAILABILITY: Record<ExchangeType, Record<MarketType, MarketAvailability>> = {
+  binance: {
+    spot: 'loading',
+    futures: 'loading',
+  },
+  bybit: {
+    spot: 'loading',
+    futures: 'loading',
   },
 };
 
 export default function OrderBookScreen() {
+  const [exchange, setExchange] = useState<ExchangeType>('binance');
   const [market, setMarket] = useState<MarketType>('spot');
-  const [symbolsByMarket, setSymbolsByMarket] = useState<Record<MarketType, TradingSymbol[]>>({
-    spot: [DEFAULT_SYMBOL, 'ETHUSDT', 'SOLUSDT'],
-    futures: [DEFAULT_SYMBOL, 'ETHUSDT', 'SOLUSDT'],
-  });
-  const [marketAvailability, setMarketAvailability] = useState<Record<MarketType, MarketAvailability>>({
-    spot: 'loading',
-    futures: 'loading',
-  });
+  const [view, setView] = useState<AppView>('book');
+  const [ratioPeriod, setRatioPeriod] = useState<RatioPeriod>('5m');
+  const [symbolsByVenue, setSymbolsByVenue] = useState(DEFAULT_SYMBOLS);
+  const [marketAvailability, setMarketAvailability] = useState(DEFAULT_AVAILABILITY);
   const [symbol, setSymbol] = useState<TradingSymbol>(DEFAULT_SYMBOL);
   const [isSymbolMenuOpen, setIsSymbolMenuOpen] = useState(false);
   const [symbolFilter, setSymbolFilter] = useState('');
@@ -98,11 +189,22 @@ export default function OrderBookScreen() {
   const [rawAsks, setRawAsks] = useState<BookEntry[]>([]);
   const [status, setStatus] = useState<ConnectionStatus>('connecting');
   const [lastUpdateId, setLastUpdateId] = useState<number | null>(null);
+  const [ratioState, setRatioState] = useState<RatioState>({
+    global: [],
+    topPositions: [],
+    status: 'connecting',
+  });
 
   const priceStep = parsePriceStep(priceStepInput);
   const bids = useMemo(() => toPriceBuckets(rawBids, 'bid', priceStep), [priceStep, rawBids]);
   const asks = useMemo(() => toPriceBuckets(rawAsks, 'ask', priceStep), [priceStep, rawAsks]);
-  const availableSymbols = symbolsByMarket[market];
+  const availableSymbols = symbolsByVenue[exchange][market];
+  const futuresSymbols = symbolsByVenue[exchange].futures;
+  const ratioSymbol = futuresSymbols.includes(symbol)
+    ? symbol
+    : futuresSymbols.includes(DEFAULT_SYMBOL)
+      ? DEFAULT_SYMBOL
+      : futuresSymbols[0] ?? DEFAULT_SYMBOL;
   const filteredSymbols = useMemo(
     () =>
       availableSymbols
@@ -114,48 +216,35 @@ export default function OrderBookScreen() {
   useEffect(() => {
     let isActive = true;
 
-    async function loadSymbols(nextMarket: MarketType) {
-      try {
-        const response = await fetch(MARKET_CONFIG[nextMarket].exchangeInfoUrl);
-        if (!response.ok) {
-          throw new Error(`HTTP ${response.status}`);
-        }
+    async function loadAllSymbols() {
+      await Promise.all(
+        EXCHANGES.flatMap((nextExchange) =>
+          MARKETS.map(async (nextMarket) => {
+            try {
+              const nextSymbols = await fetchSymbols(nextExchange, nextMarket);
 
-        const exchangeInfo = (await response.json()) as ExchangeInfo;
-        const nextSymbols = (exchangeInfo.symbols ?? [])
-          .filter((item) =>
-            nextMarket === 'spot'
-              ? item.status === 'TRADING'
-              : (item.contractStatus ?? item.status) === 'TRADING'
-          )
-          .map((item) => item.symbol)
-          .sort();
+              if (!isActive) {
+                return;
+              }
 
-        if (!isActive) {
-          return;
-        }
+              if (nextSymbols.length === 0) {
+                setMarketAvailability((current) => updateVenueValue(current, nextExchange, nextMarket, 'unavailable'));
+                return;
+              }
 
-        if (nextSymbols.length === 0) {
-          setMarketAvailability((current) => ({ ...current, [nextMarket]: 'unavailable' }));
-          return;
-        }
-
-        setMarketAvailability((current) => ({ ...current, [nextMarket]: 'available' }));
-        setSymbolsByMarket((current) => ({ ...current, [nextMarket]: nextSymbols }));
-
-        if (nextMarket === market && !nextSymbols.includes(symbol)) {
-          setSymbol(nextSymbols.includes(DEFAULT_SYMBOL) ? DEFAULT_SYMBOL : nextSymbols[0]);
-        }
-      } catch {
-        if (isActive) {
-          setMarketAvailability((current) => ({ ...current, [nextMarket]: 'unavailable' }));
-          setStatus('offline');
-        }
-      }
+              setMarketAvailability((current) => updateVenueValue(current, nextExchange, nextMarket, 'available'));
+              setSymbolsByVenue((current) => updateVenueValue(current, nextExchange, nextMarket, nextSymbols));
+            } catch {
+              if (isActive) {
+                setMarketAvailability((current) => updateVenueValue(current, nextExchange, nextMarket, 'unavailable'));
+              }
+            }
+          })
+        )
+      );
     }
 
-    loadSymbols('spot');
-    loadSymbols('futures');
+    loadAllSymbols();
 
     return () => {
       isActive = false;
@@ -163,17 +252,17 @@ export default function OrderBookScreen() {
   }, []);
 
   useEffect(() => {
-    if (marketAvailability[market] === 'unavailable') {
+    if (marketAvailability[exchange][market] === 'unavailable') {
       setMarket('spot');
       return;
     }
 
-    const nextSymbols = symbolsByMarket[market];
+    const nextSymbols = symbolsByVenue[exchange][market];
 
     if (!nextSymbols.includes(symbol)) {
-      setSymbol(nextSymbols.includes(DEFAULT_SYMBOL) ? DEFAULT_SYMBOL : nextSymbols[0]);
+      setSymbol(nextSymbols.includes(DEFAULT_SYMBOL) ? DEFAULT_SYMBOL : nextSymbols[0] ?? DEFAULT_SYMBOL);
     }
-  }, [market, marketAvailability, symbol, symbolsByMarket]);
+  }, [exchange, market, marketAvailability, symbol, symbolsByVenue]);
 
   useEffect(() => {
     let socket: WebSocket | null = null;
@@ -181,17 +270,26 @@ export default function OrderBookScreen() {
     let isActive = true;
     let isInitialized = false;
     let localUpdateId = 0;
-    let eventBuffer: DepthEvent[] = [];
+    let eventBuffer: BinanceDepthEvent[] = [];
     const bidBook = new Map<number, number>();
     const askBook = new Map<number, number>();
 
     function connect() {
       setStatus((current) => (current === 'offline' ? 'reconnecting' : 'connecting'));
 
-      socket = new WebSocket(MARKET_CONFIG[market].streamUrl(symbol));
+      socket = new WebSocket(getStreamUrl(exchange, market, symbol));
 
       socket.onopen = () => {
-        loadSnapshot();
+        if (exchange === 'bybit') {
+          loadInitialSnapshot().finally(() => {
+            if (isActive) {
+              socket?.send(JSON.stringify({ op: 'subscribe', args: [`orderbook.1000.${symbol}`] }));
+            }
+          });
+          return;
+        }
+
+        loadInitialSnapshot();
       };
 
       socket.onmessage = (event) => {
@@ -200,7 +298,14 @@ export default function OrderBookScreen() {
         }
 
         try {
-          const depthEvent = normalizeDepthEvent(JSON.parse(event.data));
+          const payload = JSON.parse(event.data);
+
+          if (exchange === 'bybit') {
+            applyBybitMessage(payload);
+            return;
+          }
+
+          const depthEvent = normalizeBinanceDepthEvent(payload);
 
           if (!depthEvent) {
             return;
@@ -211,7 +316,7 @@ export default function OrderBookScreen() {
             return;
           }
 
-          applyDepthEvent(depthEvent);
+          applyBinanceDepthEvent(depthEvent);
         } catch {
           setStatus('offline');
         }
@@ -233,18 +338,11 @@ export default function OrderBookScreen() {
       };
     }
 
-    async function loadSnapshot() {
+    async function loadInitialSnapshot() {
       try {
-        const config = MARKET_CONFIG[market];
-        const url = `${config.depthUrl}?symbol=${symbol}&limit=${config.snapshotLimit}`;
-        const response = await fetch(url);
-        if (!response.ok) {
-          throw new Error(`HTTP ${response.status}`);
-        }
+        const snapshot = await fetchOrderbookSnapshot(exchange, market, symbol);
 
-        const snapshot = (await response.json()) as DepthSnapshot;
-
-        if (!isActive || !snapshot.lastUpdateId) {
+        if (!isActive) {
           return;
         }
 
@@ -254,11 +352,15 @@ export default function OrderBookScreen() {
         hydrateBook(askBook, snapshot.asks);
         localUpdateId = snapshot.lastUpdateId;
 
-        const usableEvents = eventBuffer.filter((item) => item.u > snapshot.lastUpdateId);
-        eventBuffer = [];
+        if (exchange === 'binance') {
+          const usableEvents = eventBuffer.filter((item) => item.u > snapshot.lastUpdateId);
+          eventBuffer = [];
 
-        for (const bufferedEvent of usableEvents) {
-          applyDepthEvent(bufferedEvent, true);
+          for (const bufferedEvent of usableEvents) {
+            applyBinanceDepthEvent(bufferedEvent, true);
+          }
+        } else {
+          eventBuffer = [];
         }
 
         isInitialized = true;
@@ -272,7 +374,7 @@ export default function OrderBookScreen() {
       }
     }
 
-    function applyDepthEvent(depthEvent: DepthEvent, isBuffered = false) {
+    function applyBinanceDepthEvent(depthEvent: BinanceDepthEvent, isBuffered = false) {
       if (depthEvent.u <= localUpdateId) {
         return;
       }
@@ -290,6 +392,29 @@ export default function OrderBookScreen() {
       applyUpdates(bidBook, depthEvent.b);
       applyUpdates(askBook, depthEvent.a);
       localUpdateId = depthEvent.u;
+      publishBook();
+      setStatus('live');
+    }
+
+    function applyBybitMessage(payload: unknown) {
+      const depthMessage = normalizeBybitDepthMessage(payload);
+
+      if (!depthMessage) {
+        return;
+      }
+
+      if (depthMessage.type === 'snapshot') {
+        bidBook.clear();
+        askBook.clear();
+        hydrateBook(bidBook, depthMessage.data?.b ?? []);
+        hydrateBook(askBook, depthMessage.data?.a ?? []);
+      } else {
+        applyUpdates(bidBook, depthMessage.data?.b ?? []);
+        applyUpdates(askBook, depthMessage.data?.a ?? []);
+      }
+
+      localUpdateId = depthMessage.data?.u ?? localUpdateId;
+      isInitialized = true;
       publishBook();
       setStatus('live');
     }
@@ -317,7 +442,43 @@ export default function OrderBookScreen() {
 
       socket?.close();
     };
-  }, [market, symbol]);
+  }, [exchange, market, symbol]);
+
+  useEffect(() => {
+    let isActive = true;
+    let refreshTimer: ReturnType<typeof setInterval> | null = null;
+
+    async function loadRatioData() {
+      setRatioState((current) => ({ ...current, status: current.status === 'offline' ? 'reconnecting' : 'connecting' }));
+
+      try {
+        const nextRatioState = await fetchRatioState(exchange, ratioSymbol, ratioPeriod);
+
+        if (!isActive) {
+          return;
+        }
+
+        setRatioState({ ...nextRatioState, status: 'live' });
+      } catch {
+        if (isActive) {
+          setRatioState((current) => ({ ...current, status: 'offline' }));
+        }
+      }
+    }
+
+    if (view === 'ratio') {
+      loadRatioData();
+      refreshTimer = setInterval(loadRatioData, 30000);
+    }
+
+    return () => {
+      isActive = false;
+
+      if (refreshTimer) {
+        clearInterval(refreshTimer);
+      }
+    };
+  }, [exchange, ratioPeriod, ratioSymbol, view]);
 
   const spread = useMemo(() => {
     const bestAsk = asks[0]?.price;
@@ -335,18 +496,24 @@ export default function OrderBookScreen() {
     return Math.max(...quantities, 1);
   }, [asks, bids]);
 
-  function selectSymbol(nextSymbol: TradingSymbol) {
-    setSymbol(nextSymbol);
+  function selectExchange(nextExchange: ExchangeType) {
+    setExchange(nextExchange);
     setSymbolFilter('');
     setIsSymbolMenuOpen(false);
   }
 
   function selectMarket(nextMarket: MarketType) {
-    if (nextMarket === 'futures' && marketAvailability.futures !== 'available') {
+    if (marketAvailability[exchange][nextMarket] !== 'available') {
       return;
     }
 
     setMarket(nextMarket);
+    setSymbolFilter('');
+    setIsSymbolMenuOpen(false);
+  }
+
+  function selectSymbol(nextSymbol: TradingSymbol) {
+    setSymbol(nextSymbol);
     setSymbolFilter('');
     setIsSymbolMenuOpen(false);
   }
@@ -360,17 +527,25 @@ export default function OrderBookScreen() {
       <View style={styles.header}>
         <View>
           <Text style={styles.appName}>OrderBook</Text>
-          <Text style={styles.subtitle}>Binance market data</Text>
+          <Text style={styles.subtitle}>{EXCHANGE_LABELS[exchange]} market data</Text>
         </View>
-        <View style={[styles.statusPill, status === 'live' ? styles.statusLive : styles.statusOff]}>
-          <Text style={styles.statusText}>{statusLabel(status)}</Text>
+        <View style={[styles.statusPill, activeStatus(view, status, ratioState.status) === 'live' ? styles.statusLive : styles.statusOff]}>
+          <Text style={styles.statusText}>{statusLabel(activeStatus(view, status, ratioState.status))}</Text>
         </View>
       </View>
 
       <View style={styles.controls}>
+        <SegmentedTabs
+          items={EXCHANGES}
+          labels={EXCHANGE_LABELS}
+          selected={exchange}
+          onSelect={selectExchange}
+        />
+        <SegmentedTabs items={VIEWS} labels={VIEW_LABELS} selected={view} onSelect={setView} />
+
         <View style={styles.marketTabs}>
           {MARKETS.map((item) => {
-            const isDisabled = item === 'futures' && marketAvailability.futures !== 'available';
+            const isDisabled = marketAvailability[exchange][item] !== 'available';
 
             return (
               <Pressable
@@ -390,7 +565,7 @@ export default function OrderBookScreen() {
                     isDisabled && styles.marketTextDisabled,
                   ]}
                 >
-                  {MARKET_CONFIG[item].label}
+                  {MARKET_LABELS[item]}
                 </Text>
               </Pressable>
             );
@@ -439,28 +614,136 @@ export default function OrderBookScreen() {
             ) : null}
           </View>
 
-          <View style={styles.rangeInputWrap}>
-            <Text style={styles.inputLabel}>Price step</Text>
-            <TextInput
-              keyboardType="decimal-pad"
-              maxLength={10}
-              onChangeText={(value) => setDraftPriceStepInput(normalizePriceStepInput(value))}
-              onSubmitEditing={applyPriceStep}
-              placeholder={DEFAULT_PRICE_STEP}
-              placeholderTextColor="#75688c"
-              returnKeyType="done"
-              style={styles.rangeInput}
-              value={draftPriceStepInput}
-            />
-            <Pressable onPress={applyPriceStep} style={styles.applyButton}>
-              <Text style={styles.applyButtonText}>Apply</Text>
-            </Pressable>
-          </View>
+          {view === 'book' ? (
+            <View style={styles.rangeInputWrap}>
+              <Text style={styles.inputLabel}>Price step</Text>
+              <TextInput
+                keyboardType="decimal-pad"
+                maxLength={10}
+                onChangeText={(value) => setDraftPriceStepInput(normalizePriceStepInput(value))}
+                onSubmitEditing={applyPriceStep}
+                placeholder={DEFAULT_PRICE_STEP}
+                placeholderTextColor="#75688c"
+                returnKeyType="done"
+                style={styles.rangeInput}
+                value={draftPriceStepInput}
+              />
+              <Pressable onPress={applyPriceStep} style={styles.applyButton}>
+                <Text style={styles.applyButtonText}>Apply</Text>
+              </Pressable>
+            </View>
+          ) : (
+            <View />
+          )}
         </View>
+
+        {view === 'ratio' ? (
+          <PeriodTabs selected={ratioPeriod} onSelect={setRatioPeriod} />
+        ) : null}
       </View>
 
+      {view === 'book' ? (
+        <OrderBookView
+          asks={asks}
+          bids={bids}
+          exchange={exchange}
+          lastUpdateId={lastUpdateId}
+          market={market}
+          maxQuantity={maxQuantity}
+          priceStep={priceStep}
+          spread={spread}
+          symbol={symbol}
+        />
+      ) : (
+        <LongShortView
+          exchange={exchange}
+          period={ratioPeriod}
+          ratioState={ratioState}
+          symbol={ratioSymbol}
+        />
+      )}
+    </SafeAreaView>
+  );
+}
+
+type SegmentedTabsProps<T extends string> = {
+  items: T[];
+  labels: Record<T, string>;
+  selected: T;
+  onSelect: (item: T) => void;
+};
+
+function SegmentedTabs<T extends string>({ items, labels, selected, onSelect }: SegmentedTabsProps<T>) {
+  return (
+    <View style={styles.marketTabs}>
+      {items.map((item) => (
+        <Pressable
+          key={item}
+          onPress={() => onSelect(item)}
+          style={[styles.marketTab, selected === item && styles.marketTabActive]}
+        >
+          <Text style={[styles.marketText, selected === item && styles.marketTextActive]}>
+            {labels[item]}
+          </Text>
+        </Pressable>
+      ))}
+    </View>
+  );
+}
+
+type PeriodTabsProps = {
+  selected: RatioPeriod;
+  onSelect: (item: RatioPeriod) => void;
+};
+
+function PeriodTabs({ selected, onSelect }: PeriodTabsProps) {
+  return (
+    <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+      <View style={styles.periodTabs}>
+        {RATIO_PERIODS.map((item) => (
+          <Pressable
+            key={item}
+            onPress={() => onSelect(item)}
+            style={[styles.periodChip, selected === item && styles.periodChipActive]}
+          >
+            <Text style={[styles.periodChipText, selected === item && styles.periodChipTextActive]}>
+              {RATIO_PERIOD_LABELS[item]}
+            </Text>
+          </Pressable>
+        ))}
+      </View>
+    </ScrollView>
+  );
+}
+
+type OrderBookViewProps = {
+  asks: BookLevel[];
+  bids: BookLevel[];
+  exchange: ExchangeType;
+  lastUpdateId: number | null;
+  market: MarketType;
+  maxQuantity: number;
+  priceStep: number;
+  spread: number | null;
+  symbol: TradingSymbol;
+};
+
+function OrderBookView({
+  asks,
+  bids,
+  exchange,
+  lastUpdateId,
+  market,
+  maxQuantity,
+  priceStep,
+  spread,
+  symbol,
+}: OrderBookViewProps) {
+  return (
+    <>
       <View style={styles.metaRow}>
-        <Text style={styles.metaText}>{MARKET_CONFIG[market].label}</Text>
+        <Text style={styles.metaText}>{EXCHANGE_LABELS[exchange]}</Text>
+        <Text style={styles.metaText}>{MARKET_LABELS[market]}</Text>
         <Text style={styles.metaText}>Step {formatPrice(priceStep, symbol)}</Text>
         <Text style={styles.metaText}>#{lastUpdateId ?? '-'}</Text>
       </View>
@@ -502,7 +785,7 @@ export default function OrderBookScreen() {
           />
         ))}
       </ScrollView>
-    </SafeAreaView>
+    </>
   );
 }
 
@@ -533,9 +816,288 @@ function BookRow({ level, maxQuantity, side, symbol }: BookRowProps) {
   );
 }
 
-function normalizeDepthEvent(payload: unknown): DepthEvent | null {
+type LongShortViewProps = {
+  exchange: ExchangeType;
+  period: RatioPeriod;
+  ratioState: RatioState;
+  symbol: TradingSymbol;
+};
+
+function LongShortView({ exchange, period, ratioState, symbol }: LongShortViewProps) {
+  return (
+    <ScrollView contentContainerStyle={styles.ratioContent} showsVerticalScrollIndicator={false}>
+      <View style={styles.metaRow}>
+        <Text style={styles.metaText}>{EXCHANGE_LABELS[exchange]}</Text>
+        <Text style={styles.metaText}>{formatSymbol(symbol)}</Text>
+        <Text style={styles.metaText}>{RATIO_PERIOD_LABELS[period]}</Text>
+      </View>
+
+      <RatioChart
+        longLabel="Long Position %"
+        points={ratioState.topPositions}
+        ratioLabel="Long/Short Ratio (Positions)"
+        shortLabel="Short Position %"
+        subtitle="By Positions"
+        title="Top Traders Position Ratio"
+      />
+
+      <RatioChart
+        longLabel="Long Position %"
+        points={ratioState.global}
+        ratioLabel="Long/Short Ratio"
+        shortLabel="Short Position %"
+        subtitle={exchange === 'binance' ? 'All Positions' : 'All Position Holders'}
+        title="All Positions Ratio"
+      />
+    </ScrollView>
+  );
+}
+
+type RatioChartProps = {
+  longLabel: string;
+  points: RatioPoint[];
+  ratioLabel: string;
+  shortLabel: string;
+  subtitle: string;
+  title: string;
+};
+
+function RatioChart({ longLabel, points, ratioLabel, shortLabel, subtitle, title }: RatioChartProps) {
+  const latest = points.at(-1);
+  const visiblePoints = points.slice(-60);
+  const ratios = visiblePoints.map((point) => point.longShortRatio);
+  const minRatio = Math.min(...ratios, 1);
+  const maxRatio = Math.max(...ratios, 1);
+
+  return (
+    <View style={styles.ratioSection}>
+      <View style={styles.ratioHeader}>
+        <View>
+          <Text style={styles.ratioTitle}>{title}</Text>
+          <Text style={styles.ratioSubtitle}>{subtitle}</Text>
+        </View>
+        <View style={styles.ratioValueBox}>
+          <Text style={styles.ratioValueLabel}>Ratio</Text>
+          <Text style={styles.ratioValueText}>{latest ? latest.longShortRatio.toFixed(3) : '-'}</Text>
+        </View>
+      </View>
+
+      <View style={styles.chart}>
+        <View style={styles.gridLineTop} />
+        <View style={styles.gridLineMid} />
+        <View style={styles.gridLineBottom} />
+        <Text style={[styles.axisLabel, styles.axisTop]}>100%</Text>
+        <Text style={[styles.axisLabel, styles.axisMiddle]}>50%</Text>
+        <Text style={[styles.axisLabel, styles.axisBottom]}>0%</Text>
+
+        {visiblePoints.length === 0 ? (
+          <View style={styles.emptyChart}>
+            <Text style={styles.emptyChartText}>No public data</Text>
+          </View>
+        ) : (
+          <View style={styles.chartBars}>
+            {visiblePoints.map((point) => {
+              const longHeight = `${Math.max(2, point.longRatio * 100)}%` as DimensionValue;
+              const shortHeight = `${Math.max(2, point.shortRatio * 100)}%` as DimensionValue;
+              const ratioRange = maxRatio - minRatio || 1;
+              const ratioTop = `${Math.max(0, Math.min(88, 88 - ((point.longShortRatio - minRatio) / ratioRange) * 70))}%` as DimensionValue;
+
+              return (
+                <View key={`${title}-${point.timestamp}`} style={styles.ratioColumn}>
+                  <View style={[styles.ratioLineDot, { top: ratioTop }]} />
+                  <View style={[styles.shortRatioBar, { height: shortHeight }]} />
+                  <View style={[styles.longRatioBar, { height: longHeight }]} />
+                </View>
+              );
+            })}
+          </View>
+        )}
+      </View>
+
+      <View style={styles.legendRow}>
+        <View style={styles.legendItem}>
+          <View style={[styles.legendDot, styles.shortLegend]} />
+          <Text style={styles.legendText}>{shortLabel}</Text>
+        </View>
+        <View style={styles.legendItem}>
+          <View style={[styles.legendDot, styles.longLegend]} />
+          <Text style={styles.legendText}>{longLabel}</Text>
+        </View>
+      </View>
+      <View style={styles.legendItemCenter}>
+        <View style={styles.ratioLineSample} />
+        <Text style={styles.legendText}>{ratioLabel}</Text>
+      </View>
+    </View>
+  );
+}
+
+async function fetchSymbols(exchange: ExchangeType, market: MarketType): Promise<TradingSymbol[]> {
+  if (exchange === 'binance') {
+    const url =
+      market === 'spot'
+        ? 'https://api.binance.com/api/v3/exchangeInfo'
+        : 'https://fapi.binance.com/fapi/v1/exchangeInfo';
+    const response = await fetch(url);
+
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+
+    const exchangeInfo = (await response.json()) as BinanceExchangeInfo;
+
+    return (exchangeInfo.symbols ?? [])
+      .filter((item) =>
+        market === 'spot'
+          ? item.status === 'TRADING'
+          : (item.contractStatus ?? item.status) === 'TRADING'
+      )
+      .map((item) => item.symbol)
+      .sort();
+  }
+
+  const category = market === 'spot' ? 'spot' : 'linear';
+  let cursor = '';
+  const symbols: TradingSymbol[] = [];
+
+  do {
+    const url = `https://api.bybit.com/v5/market/instruments-info?category=${category}${cursor ? `&cursor=${cursor}` : ''}`;
+    const response = await fetch(url);
+
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+
+    const data = (await response.json()) as BybitInstrumentsInfo;
+
+    if (data.retCode !== 0 || !data.result?.list) {
+      break;
+    }
+
+    symbols.push(
+      ...data.result.list
+        .filter((item) => item.status === 'Trading')
+        .map((item) => item.symbol)
+    );
+    cursor = data.result.nextPageCursor ?? '';
+  } while (cursor);
+
+  return [...new Set(symbols)].sort();
+}
+
+async function fetchOrderbookSnapshot(
+  exchange: ExchangeType,
+  market: MarketType,
+  symbol: TradingSymbol
+): Promise<BinanceDepthSnapshot> {
+  if (exchange === 'binance') {
+    const baseUrl =
+      market === 'spot'
+        ? 'https://api.binance.com/api/v3/depth'
+        : 'https://fapi.binance.com/fapi/v1/depth';
+    const limit = market === 'spot' ? 5000 : 1000;
+    const response = await fetch(`${baseUrl}?symbol=${symbol}&limit=${limit}`);
+
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+
+    return (await response.json()) as BinanceDepthSnapshot;
+  }
+
+  const category = market === 'spot' ? 'spot' : 'linear';
+  const response = await fetch(
+    `https://api.bybit.com/v5/market/orderbook?category=${category}&symbol=${symbol}&limit=1000`
+  );
+
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status}`);
+  }
+
+  const data = (await response.json()) as BybitOrderbookSnapshot;
+
+  if (data.retCode !== 0 || !data.result) {
+    throw new Error('Invalid Bybit orderbook response');
+  }
+
+  return {
+    lastUpdateId: data.result.u ?? 0,
+    bids: data.result.b ?? [],
+    asks: data.result.a ?? [],
+  };
+}
+
+async function fetchRatioState(
+  exchange: ExchangeType,
+  symbol: TradingSymbol,
+  period: RatioPeriod
+): Promise<Omit<RatioState, 'status'>> {
+  if (exchange === 'binance') {
+    const topUrl = `https://fapi.binance.com/futures/data/topLongShortPositionRatio?symbol=${symbol}&period=${period}&limit=60`;
+    const globalUrl = `https://fapi.binance.com/futures/data/globalLongShortAccountRatio?symbol=${symbol}&period=${period}&limit=60`;
+    const [topResponse, globalResponse] = await Promise.all([fetch(topUrl), fetch(globalUrl)]);
+
+    if (!topResponse.ok || !globalResponse.ok) {
+      throw new Error('Binance ratio request failed');
+    }
+
+    const topItems = (await topResponse.json()) as BinanceRatioItem[];
+    const globalItems = (await globalResponse.json()) as BinanceRatioItem[];
+
+    return {
+      topPositions: mapBinanceRatio(topItems),
+      global: mapBinanceRatio(globalItems),
+    };
+  }
+
+  const response = await fetch(
+    `https://api.bybit.com/v5/market/account-ratio?category=linear&symbol=${symbol}&period=${BYBIT_RATIO_PERIODS[period]}&limit=120`
+  );
+
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status}`);
+  }
+
+  const data = (await response.json()) as BybitRatioResponse;
+
+  if (data.retCode !== 0 || !data.result?.list) {
+    throw new Error('Bybit ratio request failed');
+  }
+
+  return {
+    topPositions: [],
+    global: data.result.list
+      .map((item) => {
+        const longRatio = Number(item.buyRatio);
+        const shortRatio = Number(item.sellRatio);
+
+        return {
+          timestamp: Number(item.timestamp),
+          longRatio,
+          shortRatio,
+          longShortRatio: shortRatio > 0 ? longRatio / shortRatio : 0,
+        };
+      })
+      .filter(isFiniteRatioPoint)
+      .sort((first, second) => first.timestamp - second.timestamp),
+  };
+}
+
+function getStreamUrl(exchange: ExchangeType, market: MarketType, symbol: TradingSymbol): string {
+  if (exchange === 'bybit') {
+    return `wss://stream.bybit.com/v5/public/${market === 'spot' ? 'spot' : 'linear'}`;
+  }
+
+  if (market === 'spot') {
+    return `wss://stream.binance.com:9443/ws/${symbol.toLowerCase()}@depth@100ms`;
+  }
+
+  return `wss://fstream.binance.com/public/stream?streams=${symbol.toLowerCase()}@depth@100ms`;
+}
+
+function normalizeBinanceDepthEvent(payload: unknown): BinanceDepthEvent | null {
   const maybeCombined = payload as { data?: unknown };
-  const data = (maybeCombined.data ?? payload) as Partial<DepthEvent>;
+  const data = (maybeCombined.data ?? payload) as Partial<BinanceDepthEvent>;
 
   if (
     typeof data.U !== 'number' ||
@@ -553,6 +1115,20 @@ function normalizeDepthEvent(payload: unknown): DepthEvent | null {
     b: data.b as [string, string][],
     a: data.a as [string, string][],
   };
+}
+
+function normalizeBybitDepthMessage(payload: unknown): BybitDepthMessage | null {
+  const data = payload as BybitDepthMessage;
+
+  if (
+    !data.topic?.startsWith('orderbook.') ||
+    (data.type !== 'snapshot' && data.type !== 'delta') ||
+    !data.data
+  ) {
+    return null;
+  }
+
+  return data;
 }
 
 function hydrateBook(book: Map<number, number>, levels: [string, string][]) {
@@ -620,6 +1196,46 @@ function toPriceBuckets(entries: BookEntry[], side: BookSide, priceStep: number)
   });
 }
 
+function mapBinanceRatio(items: BinanceRatioItem[]): RatioPoint[] {
+  return items
+    .map((item) => ({
+      timestamp: Number(item.timestamp),
+      longRatio: Number(item.longAccount),
+      shortRatio: Number(item.shortAccount),
+      longShortRatio: Number(item.longShortRatio),
+    }))
+    .filter(isFiniteRatioPoint)
+    .sort((first, second) => first.timestamp - second.timestamp);
+}
+
+function isFiniteRatioPoint(point: RatioPoint): boolean {
+  return (
+    Number.isFinite(point.timestamp) &&
+    Number.isFinite(point.longRatio) &&
+    Number.isFinite(point.shortRatio) &&
+    Number.isFinite(point.longShortRatio)
+  );
+}
+
+function updateVenueValue<T>(
+  current: Record<ExchangeType, Record<MarketType, T>>,
+  exchange: ExchangeType,
+  market: MarketType,
+  value: T
+): Record<ExchangeType, Record<MarketType, T>> {
+  return {
+    ...current,
+    [exchange]: {
+      ...current[exchange],
+      [market]: value,
+    },
+  };
+}
+
+function activeStatus(view: AppView, bookStatus: ConnectionStatus, ratioStatus: ConnectionStatus) {
+  return view === 'book' ? bookStatus : ratioStatus;
+}
+
 function midPrice(asks: BookLevel[], bids: BookLevel[]): number | null {
   const bestAsk = asks[0]?.price;
   const bestBid = bids[0]?.price;
@@ -675,6 +1291,10 @@ function formatQuantity(value: number): string {
   }
 
   return value.toFixed(4);
+}
+
+function formatPercent(value: number): string {
+  return `${(value * 100).toFixed(1)}%`;
 }
 
 function statusLabel(status: ConnectionStatus): string {
@@ -843,6 +1463,48 @@ const styles = StyleSheet.create({
   rangeInputWrap: {
     width: 112,
   },
+  periodPill: {
+    width: 112,
+  },
+  periodText: {
+    backgroundColor: '#2f2445',
+    borderColor: '#40305e',
+    borderRadius: 8,
+    borderWidth: 1,
+    color: '#66d5c6',
+    fontSize: 14,
+    fontWeight: '900',
+    minHeight: 48,
+    paddingTop: 14,
+    textAlign: 'center',
+  },
+  periodTabs: {
+    flexDirection: 'row',
+    gap: 8,
+    paddingBottom: 2,
+  },
+  periodChip: {
+    alignItems: 'center',
+    backgroundColor: '#1b102c',
+    borderColor: '#2b1c43',
+    borderRadius: 8,
+    borderWidth: 1,
+    minWidth: 54,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+  },
+  periodChipActive: {
+    backgroundColor: '#3b2a59',
+    borderColor: '#66d5c6',
+  },
+  periodChipText: {
+    color: '#9b8db4',
+    fontSize: 12,
+    fontWeight: '900',
+  },
+  periodChipTextActive: {
+    color: '#ffffff',
+  },
   inputLabel: {
     color: '#75688c',
     fontSize: 11,
@@ -867,9 +1529,9 @@ const styles = StyleSheet.create({
     borderColor: '#40305e',
     borderRadius: 8,
     borderWidth: 1,
+    justifyContent: 'center',
     marginTop: 6,
     minHeight: 34,
-    justifyContent: 'center',
   },
   applyButtonText: {
     color: '#66d5c6',
@@ -921,6 +1583,7 @@ const styles = StyleSheet.create({
     position: 'relative',
   },
   depthBar: {
+    borderRadius: 5,
     bottom: 2,
     position: 'absolute',
     right: 8,
@@ -968,5 +1631,217 @@ const styles = StyleSheet.create({
     color: '#8b7aa7',
     fontSize: 12,
     fontWeight: '700',
+  },
+  ratioContent: {
+    paddingBottom: 24,
+  },
+  ratioSection: {
+    borderBottomColor: '#2a1d3e',
+    borderBottomWidth: 1,
+    paddingHorizontal: 16,
+    paddingVertical: 18,
+  },
+  ratioHeader: {
+    alignItems: 'flex-start',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 16,
+  },
+  ratioTitle: {
+    color: '#f4efff',
+    fontSize: 18,
+    fontWeight: '900',
+  },
+  ratioSubtitle: {
+    color: '#8b7aa7',
+    fontSize: 13,
+    fontWeight: '700',
+    marginTop: 6,
+  },
+  shareGlyph: {
+    color: '#8b7aa7',
+    fontSize: 20,
+    fontWeight: '900',
+  },
+  ratioValueBox: {
+    alignItems: 'flex-end',
+    backgroundColor: '#1b102c',
+    borderColor: '#2b1c43',
+    borderRadius: 8,
+    borderWidth: 1,
+    minWidth: 76,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+  },
+  ratioValueLabel: {
+    color: '#75688c',
+    fontSize: 10,
+    fontWeight: '900',
+  },
+  ratioValueText: {
+    color: '#f4efff',
+    fontSize: 16,
+    fontWeight: '900',
+    marginTop: 2,
+  },
+  chart: {
+    height: 170,
+    paddingLeft: 48,
+    position: 'relative',
+  },
+  chartBars: {
+    alignItems: 'flex-end',
+    flexDirection: 'row',
+    gap: 5,
+    height: 140,
+    justifyContent: 'center',
+  },
+  emptyChart: {
+    alignItems: 'center',
+    height: 140,
+    justifyContent: 'center',
+  },
+  emptyChartText: {
+    color: '#75688c',
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  ratioColumn: {
+    flexDirection: 'column',
+    height: 140,
+    justifyContent: 'flex-end',
+    position: 'relative',
+    width: 7,
+  },
+  shortRatioBar: {
+    backgroundColor: '#ff3f63',
+    borderTopLeftRadius: 3,
+    borderTopRightRadius: 3,
+    width: 7,
+  },
+  longRatioBar: {
+    backgroundColor: '#19d184',
+    borderBottomLeftRadius: 3,
+    borderBottomRightRadius: 3,
+    width: 7,
+  },
+  ratioLineDot: {
+    backgroundColor: '#ffffff',
+    borderRadius: 3,
+    height: 5,
+    left: 1,
+    position: 'absolute',
+    width: 5,
+    zIndex: 2,
+  },
+  gridLineTop: {
+    backgroundColor: '#2a1d3e',
+    height: 1,
+    left: 48,
+    position: 'absolute',
+    right: 0,
+    top: 0,
+  },
+  gridLineMid: {
+    backgroundColor: '#2a1d3e',
+    height: 1,
+    left: 48,
+    position: 'absolute',
+    right: 0,
+    top: 70,
+  },
+  gridLineBottom: {
+    backgroundColor: '#2a1d3e',
+    height: 1,
+    left: 48,
+    position: 'absolute',
+    right: 0,
+    top: 140,
+  },
+  axisLabel: {
+    color: '#8b7aa7',
+    fontSize: 12,
+    fontVariant: ['tabular-nums'],
+    position: 'absolute',
+    width: 42,
+  },
+  axisTop: {
+    top: -7,
+  },
+  axisMiddle: {
+    top: 63,
+  },
+  axisBottom: {
+    top: 133,
+  },
+  legendRow: {
+    flexDirection: 'row',
+    gap: 20,
+    justifyContent: 'center',
+    marginTop: 8,
+  },
+  legendItem: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 7,
+  },
+  legendItemCenter: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 7,
+    justifyContent: 'center',
+    marginTop: 12,
+  },
+  legendDot: {
+    borderRadius: 3,
+    height: 10,
+    width: 10,
+  },
+  shortLegend: {
+    backgroundColor: '#ff3f63',
+  },
+  longLegend: {
+    backgroundColor: '#19d184',
+  },
+  ratioLineSample: {
+    backgroundColor: '#ffffff',
+    height: 2,
+    width: 16,
+  },
+  legendText: {
+    color: '#9b8db4',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  ratioSummary: {
+    backgroundColor: '#1b102c',
+    borderColor: '#2b1c43',
+    borderRadius: 8,
+    borderWidth: 1,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    margin: 16,
+    padding: 14,
+  },
+  summaryLabel: {
+    color: '#75688c',
+    fontSize: 11,
+    fontWeight: '800',
+    marginBottom: 6,
+  },
+  summaryLong: {
+    color: '#19d184',
+    fontSize: 17,
+    fontWeight: '900',
+  },
+  summaryShort: {
+    color: '#ff3f63',
+    fontSize: 17,
+    fontWeight: '900',
+  },
+  summaryValue: {
+    color: '#f4efff',
+    fontSize: 17,
+    fontWeight: '900',
   },
 });
