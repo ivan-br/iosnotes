@@ -71,7 +71,7 @@ jobs:
             exit 1
           fi
 
-          rm -rf Payload LooksmaxingProMax.ipa
+          rm -rf Payload OrderBook.ipa
           mkdir -p Payload
           cp -R "$APP_PATH" Payload/
           BUNDLED_APP="Payload/$(basename "$APP_PATH")"
@@ -98,10 +98,10 @@ jobs:
           echo "main.jsbundle format:"
           file "$BUNDLED_APP/main.jsbundle"
 
-          /usr/bin/zip -qry LooksmaxingProMax.ipa Payload
+          /usr/bin/zip -qry OrderBook.ipa Payload
 
       - name: Upload IPA artifact
         uses: actions/upload-artifact@v4
         with:
-          name: LooksmaxingProMax-unsigned-ipa
-          path: LooksmaxingProMax.ipa
+          name: OrderBook-unsigned-ipa
+          path: OrderBook.ipa

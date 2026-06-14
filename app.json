@@ -1,22 +1,15 @@
 {
   "expo": {
-    "name": "LooksmaxingProMax",
-    "slug": "looksmaxing-pro-max",
-    "scheme": "looksmaxingpromax",
+    "name": "OrderBook",
+    "slug": "order-book",
+    "scheme": "orderbook",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
     "newArchEnabled": false,
     "plugins": [
-      "expo-router",
-      [
-        "expo-camera",
-        {
-          "cameraPermission": "Allow LooksmaxingProMax to access your camera for face scans.",
-          "recordAudioAndroid": false
-        }
-      ]
+      "expo-router"
     ],
     "splash": {
       "image": "./assets/splash-icon.png",
