@@ -114,7 +114,7 @@ const MARKETS: MarketType[] = ['spot', 'futures'];
 const VIEWS: AppView[] = ['book', 'ratio'];
 const DEFAULT_SYMBOL = 'BTCUSDT';
 const DEFAULT_PRICE_STEP = '200';
-const MAX_VISIBLE_ROWS = 64;
+const MAX_VISIBLE_ROWS = 120;
 const RATIO_PERIOD = '5m';
 const BYBIT_RATIO_PERIOD = '5min';
 
@@ -166,6 +166,7 @@ export default function OrderBookScreen() {
   const [symbolFilter, setSymbolFilter] = useState('');
   const [draftPriceStepInput, setDraftPriceStepInput] = useState(DEFAULT_PRICE_STEP);
   const [priceStepInput, setPriceStepInput] = useState(DEFAULT_PRICE_STEP);
+  const [isCustomPriceStep, setIsCustomPriceStep] = useState(false);
   const [rawBids, setRawBids] = useState<BookEntry[]>([]);
   const [rawAsks, setRawAsks] = useState<BookEntry[]>([]);
   const [status, setStatus] = useState<ConnectionStatus>('connecting');
@@ -176,16 +177,35 @@ export default function OrderBookScreen() {
     status: 'connecting',
   });
 
-  const priceStep = parsePriceStep(priceStepInput);
-  const bids = useMemo(() => toPriceBuckets(rawBids, 'bid', priceStep), [priceStep, rawBids]);
-  const asks = useMemo(() => toPriceBuckets(rawAsks, 'ask', priceStep), [priceStep, rawAsks]);
   const availableSymbols = symbolsByVenue[exchange][market];
   const futuresSymbols = symbolsByVenue[exchange].futures;
-  const ratioSymbol = futuresSymbols.includes(symbol)
-    ? symbol
-    : futuresSymbols.includes(DEFAULT_SYMBOL)
-      ? DEFAULT_SYMBOL
-      : futuresSymbols[0] ?? DEFAULT_SYMBOL;
+  const currentMarketAvailability = marketAvailability[exchange][market];
+  const isCurrentSymbolAvailable = currentMarketAvailability === 'available' && availableSymbols.includes(symbol);
+  const isCurrentSymbolLoading = currentMarketAvailability === 'loading';
+  const isRatioSymbolAvailable = marketAvailability[exchange].futures === 'available' && futuresSymbols.includes(symbol);
+  const rawMidPrice = useMemo(() => midRawPrice(rawAsks, rawBids), [rawAsks, rawBids]);
+  const automaticPriceStepInput = useMemo(
+    () => getDefaultPriceStep(symbol, rawMidPrice),
+    [rawMidPrice, symbol]
+  );
+  const priceStep = parsePriceStep(priceStepInput, automaticPriceStepInput);
+  const bids = useMemo(() => toPriceBuckets(rawBids, 'bid', priceStep), [priceStep, rawBids]);
+  const asks = useMemo(() => toPriceBuckets(rawAsks, 'ask', priceStep), [priceStep, rawAsks]);
+  const noticeText = useMemo(() => {
+    if (currentMarketAvailability === 'unavailable') {
+      return `${MARKET_LABELS[market]} Not found`;
+    }
+
+    if (currentMarketAvailability === 'available' && !availableSymbols.includes(symbol)) {
+      return `${formatSymbol(symbol)} Not found`;
+    }
+
+    if (view === 'ratio' && marketAvailability[exchange].futures === 'available' && !futuresSymbols.includes(symbol)) {
+      return `${formatSymbol(symbol)} Not found`;
+    }
+
+    return null;
+  }, [availableSymbols, currentMarketAvailability, exchange, futuresSymbols, market, marketAvailability, symbol, view]);
   const filteredSymbols = useMemo(
     () =>
       availableSymbols
@@ -233,19 +253,26 @@ export default function OrderBookScreen() {
   }, []);
 
   useEffect(() => {
-    if (marketAvailability[exchange][market] === 'unavailable') {
-      setMarket('spot');
+    if (!isCustomPriceStep) {
+      setDraftPriceStepInput(automaticPriceStepInput);
+      setPriceStepInput(automaticPriceStepInput);
+    }
+  }, [automaticPriceStepInput, isCustomPriceStep]);
+
+  useEffect(() => {
+    if (!isCurrentSymbolAvailable) {
+      if (isCurrentSymbolLoading) {
+        setStatus('connecting');
+        return;
+      }
+
+      setRawBids([]);
+      setRawAsks([]);
+      setLastUpdateId(null);
+      setStatus('offline');
       return;
     }
 
-    const nextSymbols = symbolsByVenue[exchange][market];
-
-    if (!nextSymbols.includes(symbol)) {
-      setSymbol(nextSymbols.includes(DEFAULT_SYMBOL) ? DEFAULT_SYMBOL : nextSymbols[0] ?? DEFAULT_SYMBOL);
-    }
-  }, [exchange, market, marketAvailability, symbol, symbolsByVenue]);
-
-  useEffect(() => {
     let socket: WebSocket | null = null;
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
     let isActive = true;
@@ -423,7 +450,7 @@ export default function OrderBookScreen() {
 
       socket?.close();
     };
-  }, [exchange, market, symbol]);
+  }, [exchange, isCurrentSymbolAvailable, isCurrentSymbolLoading, market, symbol]);
 
   useEffect(() => {
     let isActive = true;
@@ -433,7 +460,7 @@ export default function OrderBookScreen() {
       setRatioState((current) => ({ ...current, status: current.status === 'offline' ? 'reconnecting' : 'connecting' }));
 
       try {
-        const nextRatioState = await fetchRatioState(exchange, ratioSymbol);
+        const nextRatioState = await fetchRatioState(exchange, symbol);
 
         if (!isActive) {
           return;
@@ -447,9 +474,11 @@ export default function OrderBookScreen() {
       }
     }
 
-    if (view === 'ratio') {
+    if (view === 'ratio' && isRatioSymbolAvailable) {
       loadRatioData();
       refreshTimer = setInterval(loadRatioData, 30000);
+    } else if (view === 'ratio' && !isRatioSymbolAvailable) {
+      setRatioState({ global: [], topPositions: [], status: 'offline' });
     }
 
     return () => {
@@ -459,7 +488,7 @@ export default function OrderBookScreen() {
         clearInterval(refreshTimer);
       }
     };
-  }, [exchange, ratioSymbol, view]);
+  }, [exchange, isRatioSymbolAvailable, symbol, view]);
 
   const spread = useMemo(() => {
     const bestAsk = asks[0]?.price;
@@ -495,12 +524,25 @@ export default function OrderBookScreen() {
 
   function selectSymbol(nextSymbol: TradingSymbol) {
     setSymbol(nextSymbol);
+    setIsCustomPriceStep(false);
     setSymbolFilter('');
     setIsSymbolMenuOpen(false);
   }
 
   function applyPriceStep() {
-    setPriceStepInput(draftPriceStepInput || DEFAULT_PRICE_STEP);
+    const nextPriceStep = draftPriceStepInput || automaticPriceStepInput;
+    const parsedPriceStep = Number(nextPriceStep);
+
+    if (!Number.isFinite(parsedPriceStep) || parsedPriceStep <= 0) {
+      setIsCustomPriceStep(false);
+      setDraftPriceStepInput(automaticPriceStepInput);
+      setPriceStepInput(automaticPriceStepInput);
+      return;
+    }
+
+    setIsCustomPriceStep(nextPriceStep !== automaticPriceStepInput);
+    setDraftPriceStepInput(nextPriceStep);
+    setPriceStepInput(nextPriceStep);
   }
 
   return (
@@ -620,6 +662,12 @@ export default function OrderBookScreen() {
 
       </View>
 
+      {noticeText ? (
+        <View style={styles.notice}>
+          <Text style={styles.noticeText}>{noticeText}</Text>
+        </View>
+      ) : null}
+
       {view === 'book' ? (
         <OrderBookView
           asks={asks}
@@ -636,7 +684,7 @@ export default function OrderBookScreen() {
         <LongShortView
           exchange={exchange}
           ratioState={ratioState}
-          symbol={ratioSymbol}
+          symbol={symbol}
         />
       )}
     </SafeAreaView>
@@ -1207,11 +1255,70 @@ function midPrice(asks: BookLevel[], bids: BookLevel[]): number | null {
   return (bestAsk + bestBid) / 2;
 }
 
-function parsePriceStep(value: string): number {
+function midRawPrice(asks: BookEntry[], bids: BookEntry[]): number | null {
+  const bestAsk = asks[0]?.[0];
+  const bestBid = bids[0]?.[0];
+
+  if (!bestAsk || !bestBid) {
+    return null;
+  }
+
+  return (bestAsk + bestBid) / 2;
+}
+
+function getDefaultPriceStep(symbol: TradingSymbol, referencePrice: number | null): string {
+  if (referencePrice && Number.isFinite(referencePrice)) {
+    if (referencePrice >= 50000) {
+      return '200';
+    }
+
+    if (referencePrice >= 10000) {
+      return '50';
+    }
+
+    if (referencePrice >= 1000) {
+      return '10';
+    }
+
+    if (referencePrice >= 100) {
+      return '1';
+    }
+
+    if (referencePrice >= 10) {
+      return '0.1';
+    }
+
+    if (referencePrice >= 0.1) {
+      return '0.01';
+    }
+
+    if (referencePrice >= 0.01) {
+      return '0.001';
+    }
+
+    return '0.0001';
+  }
+
+  if (symbol.includes('BTC')) {
+    return '200';
+  }
+
+  if (symbol.includes('ETH')) {
+    return '20';
+  }
+
+  if (symbol.includes('SOL')) {
+    return '1';
+  }
+
+  return '0.01';
+}
+
+function parsePriceStep(value: string, fallbackValue = DEFAULT_PRICE_STEP): number {
   const parsed = Number(value);
 
   if (!Number.isFinite(parsed) || parsed <= 0) {
-    return Number(DEFAULT_PRICE_STEP);
+    return Number(fallbackValue);
   }
 
   return parsed;
@@ -1315,6 +1422,22 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingTop: 12,
     zIndex: 2,
+  },
+  notice: {
+    backgroundColor: '#2a1d3e',
+    borderColor: '#4b334f',
+    borderRadius: 8,
+    borderWidth: 1,
+    marginHorizontal: 12,
+    marginTop: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  noticeText: {
+    color: '#ff737f',
+    fontSize: 13,
+    fontWeight: '900',
+    textAlign: 'center',
   },
   marketTabs: {
     backgroundColor: '#1b102c',
