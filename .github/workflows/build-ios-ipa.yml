@@ -20,8 +20,13 @@ jobs:
       - name: Install JS dependencies
         run: npm ci
 
+      - name: Verify JavaScript
+        run: |
+          npm test
+          npm run typecheck
+
       - name: Prebuild iOS project
-        run: npx expo prebuild --platform ios --clean
+        run: npx expo prebuild --platform ios --clean --no-install
 
       - name: Install CocoaPods dependencies
         run: |
@@ -32,11 +37,13 @@ jobs:
       - name: Detect workspace and scheme
         id: detect
         run: |
-          WORKSPACE=$(find ios -name "*.xcworkspace" | head -n 1)
+          WORKSPACE=$(find ios -maxdepth 1 -type d -name "*.xcworkspace" -print -quit)
+          test -n "$WORKSPACE"
           echo "workspace=$WORKSPACE" >> $GITHUB_OUTPUT
 
           PROJECT=$(find ios -maxdepth 1 -name "*.xcodeproj" | head -n 1)
           SCHEME=$(basename "$PROJECT" .xcodeproj)
+          test -n "$PROJECT"
           echo "scheme=$SCHEME" >> $GITHUB_OUTPUT
 
           echo "Workspace: $WORKSPACE"
@@ -79,8 +86,7 @@ jobs:
           echo "Packaged app contents:"
           find Payload -maxdepth 3 -print
 
-          test -f "$BUNDLED_APP/main.jsbundle"
-          test -f "$BUNDLED_APP/Assets.car"
+          bash scripts/verify-ios-bundle.sh "$BUNDLED_APP"
 
           EXECUTABLE=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$BUNDLED_APP/Info.plist")
           echo "Executable: $EXECUTABLE"

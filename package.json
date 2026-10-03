@@ -3,15 +3,22 @@
   "version": "1.0.0",
   "main": "expo-router/entry",
   "scripts": {
+    "test": "node --require ./tests/register.cjs --test tests/market.test.cjs",
+    "typecheck": "tsc --noEmit",
     "start": "expo start",
     "android": "expo run:android",
     "ios": "expo run:ios",
     "build:altstore:ipa": "bash scripts/build-altstore-ipa.sh",
     "web": "expo start --web"
   },
+  "engines": {
+    "node": ">=20.19.0"
+  },
   "dependencies": {
-    "expo": "~54.0.33",
-    "expo-router": "~6.0.23",
+    "expo": "~54.0.37",
+    "expo-constants": "~18.0.14",
+    "expo-linking": "~8.0.12",
+    "expo-router": "~6.0.24",
     "expo-status-bar": "~3.0.9",
     "react": "19.1.0",
     "react-dom": "19.1.0",
