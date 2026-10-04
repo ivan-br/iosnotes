@@ -90,13 +90,13 @@ class Clock {
     Date.now = this.original.now;
   }
 }
-function setup(t, exchange = "binance", market = "spot", deps = {}) {
+function setup(t, exchange = "binance", market = "spot", deps = {}, selected = instrument) {
   const clock = new Clock();
   clock.install();
   const sockets = [],
     pending = [];
   const session = new BookSession(
-    { exchange, market, instrument },
+    { exchange, market, instrument: selected },
     {
       random: () => 0,
       socket: () => {
@@ -138,6 +138,98 @@ function setup(t, exchange = "binance", market = "spot", deps = {}) {
   return { session, sockets, pending, clock };
 }
 const event = (U, u, pu, b = []) => ({ s: "BTCUSDT", U, u, pu, b, a: [] });
+
+const btw = { ...instrument, symbol: "BTWUSDT", base: "BTW", tick: "0.0001000", lot: "1" };
+// Prices observed in Binance's public BTW snapshot on 2026-10-04.
+const btwSnapshot = {
+  lastUpdateId: 100,
+  bids: [["1.1627000", "97"], ["1.1603700", "12"]],
+  asks: [["1.2494000", "101"], ["1.2511300", "11"]],
+};
+
+test("BTW depth finer than the advertised tick is retained exactly", () => {
+  const book = new OrderBook(btw);
+  book.replace(btwSnapshot.bids, btwSnapshot.asks, 100);
+  assert.equal(book.digits, 5);
+  assert.equal(book.bids.get(116037), 12);
+  book.setStep(defaultStep(1.2, btw.tick));
+  assert.equal(book.step, "0.0100");
+  assert.deepEqual(book.project().bids.map(row => [row.price, row.quantity]), [["1.1600", 109]]);
+  assert.equal(book.project().spread, "0.08670");
+  book.setStep("0.0001");
+  assert.equal(book.project().bids[1].price, "1.1603");
+  assert.equal(book.project().asks[1].price, "1.2512");
+  book.apply([["1.1603700", "0"]], [["1.2511300", "20"]], 101);
+  assert.equal(book.bids.size, 1);
+  assert.equal(book.asks.get(125113), 20);
+});
+
+test("a finer live price rescales existing levels without changing the custom step", () => {
+  const book = new OrderBook(btw);
+  book.replace([["1.1627", "97"]], [["1.1630", "100"]], 1);
+  book.setStep("0.01");
+  book.project();
+  book.apply([["1.16037", "12"]], [["1.1630", "99"]], 2);
+  assert.equal(book.digits, 5);
+  assert.equal(book.bids.get(116270), 97);
+  assert.equal(book.project().bids[0].quantity, 109);
+  assert.equal(book.project().asks[0].quantity, 99);
+  assert.equal(book.step, "0.0100");
+  book.apply([["1.16037", "0"], ["1.1627", "0"]], [], 3);
+  assert.equal(book.project().bids.length, 0);
+  book.replace([["1.1600", "5"]], [["1.1700", "6"]], 4);
+  assert.equal(book.project().bids[0].quantity, 5);
+});
+
+test("off-grid prices at the existing precision are valid feed data", () => {
+  const book = new OrderBook({ ...instrument, tick: "0.05" });
+  book.replace([["1.03", "1"]], [["1.07", "2"]], 1);
+  assert.equal(book.project().bids[0].price, "1.00");
+  assert.equal(book.project().asks[0].price, "1.10");
+  assert.equal(book.project().spread, "0.04");
+});
+
+test("failed precision expansion leaves prices, buckets, step and sequence untouched", () => {
+  const book = new OrderBook(instrument);
+  book.replace(snapshot.bids, snapshot.asks, 100);
+  const before = book.project();
+  assert.throws(() => book.apply([["0.000000000000001", "1"]], [], 101), /safe/);
+  assert.equal(book.digits, 2);
+  assert.deepEqual(book.project(), before);
+  assert.throws(() => book.apply([["100.011", "5"]], [["100.04", "NaN"]], 101));
+  assert.equal(book.digits, 2);
+  assert.deepEqual(book.project(), before);
+});
+
+test("BTW futures synchronizes, chooses its default, and keeps manual steps on reconnect", async (t) => {
+  const { session, sockets, pending, clock } = setup(t, "binance", "futures", {}, btw);
+  const unsubscribe = session.subscribeData(() => {});
+  t.after(unsubscribe);
+  sockets[0].message({ ...event(99, 101, 98), s: btw.symbol });
+  pending[0].resolve(btwSnapshot);
+  await flush();
+  await clock.tick(100);
+  assert.equal(session.getStatus(), "live");
+  assert.equal(session.getProjection().step, "0.0100");
+  session.setStep("0.001");
+  await clock.tick(100);
+  assert.equal(session.getProjection().step, "0.0010");
+  session.stop();
+  session.start();
+  sockets[1].onopen();
+  sockets[1].message({ ...event(99, 101, 98), s: btw.symbol });
+  pending[1].resolve(btwSnapshot);
+  await flush();
+  await clock.tick(100);
+  assert.equal(session.getStatus(), "live");
+  assert.equal(session.getProjection().step, "0.0010");
+});
+
+test("order rows never opt into native auto-shrinking text", () => {
+  const fs = require("node:fs");
+  const source = fs.readFileSync(require.resolve("../src/components/order-book-view.tsx"), "utf8");
+  assert.doesNotMatch(source, /adjustsFontSizeToFit/);
+});
 
 test("tick aggregation respects exact boundaries, raw spread and mid", () => {
   const book = new OrderBook({ ...instrument, tick: "0.01" });

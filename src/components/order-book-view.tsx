@@ -42,7 +42,6 @@ const BookRow = memo(function BookRow({
       <Text
         maxFontSizeMultiplier={1.2}
         numberOfLines={1}
-        adjustsFontSizeToFit
         style={[
           styles.rowText,
           styles.priceColumn,
@@ -54,7 +53,6 @@ const BookRow = memo(function BookRow({
       <Text
         maxFontSizeMultiplier={1.2}
         numberOfLines={1}
-        adjustsFontSizeToFit
         style={styles.rowText}
       >
         {quantity(level.quantity, lot)}
@@ -62,7 +60,6 @@ const BookRow = memo(function BookRow({
       <Text
         maxFontSizeMultiplier={1.2}
         numberOfLines={1}
-        adjustsFontSizeToFit
         style={[styles.rowText, styles.totalColumn]}
       >
         {quantity(level.total, lot)}
@@ -102,7 +99,7 @@ export const OrderBookView = memo(function OrderBookView({
         <View style={styles.spreadRow}>
           <Text
             numberOfLines={1}
-            adjustsFontSizeToFit
+            maxFontSizeMultiplier={1.2}
             style={[styles.spreadPrice, { flex: 1 }]}
           >
             {(item as Extract<Row, { key: "spread" }>).mid}

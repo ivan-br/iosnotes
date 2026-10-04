@@ -240,6 +240,7 @@ export const styles = StyleSheet.create({
     paddingBottom: 18,
   },
   row: {
+    alignItems: "center",
     flexDirection: "row",
     height: 28,
     overflow: "hidden",
@@ -264,7 +265,7 @@ export const styles = StyleSheet.create({
     flex: 1,
     fontSize: 13,
     fontVariant: ["tabular-nums"],
-    lineHeight: 28,
+    lineHeight: 18,
     textAlign: "right",
   },
   askText: {

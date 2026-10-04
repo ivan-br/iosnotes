@@ -9,17 +9,16 @@ export class OrderBook {
   private bidCounts = new Map<number, number>();
   private askCounts = new Map<number, number>();
   private stepUnits: number;
-  readonly digits: number;
-  private tickUnits: number;
+  digits: number;
   private previous = new Map<string, Level>();
   updateId: number | null = null;
   step: string;
 
   constructor(readonly instrument: Instrument) {
     this.digits = precision(instrument.tick);
-    this.tickUnits = units(instrument.tick, this.digits);
-    if (this.tickUnits <= 0) throw new Error("Invalid tick size");
-    this.stepUnits = this.tickUnits;
+    const tickUnits = units(instrument.tick, this.digits);
+    if (tickUnits <= 0) throw new Error("Invalid tick size");
+    this.stepUnits = tickUnits;
     this.step = decimal(this.stepUnits, this.digits);
   }
 
@@ -70,7 +69,23 @@ export class OrderBook {
     buckets.set(key, (buckets.get(key) ?? 0) + (amount - previous));
   }
 
-  private parse(entries: Entries): [number, number][] {
+  private pricePrecision(entries: Entries): number {
+    if (!Array.isArray(entries)) throw new Error("Missing depth entries");
+    let digits = this.digits;
+    for (const entry of entries) {
+      if (
+        !Array.isArray(entry) ||
+        typeof entry[0] !== "string" ||
+        entry[0].length > 64 ||
+        !/^\d+(?:\.\d+)?$/.test(entry[0])
+      )
+        throw new Error("Invalid depth price");
+      digits = Math.max(digits, precision(entry[0]));
+    }
+    return digits;
+  }
+
+  private parse(entries: Entries, digits: number): [number, number][] {
     if (!Array.isArray(entries)) throw new Error("Missing depth entries");
     return entries.map((entry) => {
       if (
@@ -87,11 +102,10 @@ export class OrderBook {
         entry[1].length > 64
       )
         throw new Error("Invalid depth value");
-      const price = units(entry[0], this.digits),
+      const price = units(entry[0], digits),
         amount = Number(entry[1]);
       if (
         price <= 0 ||
-        price % this.tickUnits !== 0 ||
         !Number.isFinite(amount) ||
         amount < 0 ||
         amount > Number.MAX_SAFE_INTEGER
@@ -109,9 +123,28 @@ export class OrderBook {
     if (!Number.isSafeInteger(id) || id < 0)
       throw new Error("Invalid depth sequence");
     // Validate both sides before mutating either, including replacement snapshots.
-    const parsedBids = this.parse(bids),
-      parsedAsks = this.parse(asks);
-    for (const [price] of parsedAsks) this.bucket("ask", price);
+    const digits = Math.max(this.pricePrecision(bids), this.pricePrecision(asks));
+    const stepUnits = units(this.step, digits);
+    let parsedBids = this.parse(bids, digits),
+      parsedAsks = this.parse(asks, digits);
+    // Published depth can contain orders finer than today's order-entry tick.
+    // Rescale exactly, before mutation, rather than rejecting or rounding them.
+    if (digits !== this.digits && !replace) {
+      const rescale = (levels: Map<number, number>): [number, number][] =>
+        [...levels].map(([price, amount]) => [
+          units(decimal(price, this.digits), digits),
+          amount,
+        ]);
+      parsedBids = [...rescale(this.bids), ...parsedBids];
+      parsedAsks = [...rescale(this.asks), ...parsedAsks];
+    }
+    for (const [price] of parsedAsks) this.bucket("ask", price, stepUnits);
+    if (digits !== this.digits) {
+      replace = true;
+      this.previous.clear();
+    }
+    this.digits = digits;
+    this.stepUnits = stepUnits;
     if (replace) {
       this.bids.clear();
       this.asks.clear();
@@ -144,6 +177,7 @@ export class OrderBook {
 
   project(limit = 120): Projection {
     const next = new Map<string, Level>();
+    const extraDigits = this.digits - precision(this.instrument.tick);
     const build = (side: "bid" | "ask", buckets: Map<number, number>) => {
       let total = 0;
       return [...buckets.keys()]
@@ -159,7 +193,11 @@ export class OrderBook {
               ? old
               : {
                   key,
-                  price: decimal(price, this.digits),
+                  price: extraDigits
+                    ? decimal(price, this.digits)
+                        .slice(0, -extraDigits)
+                        .replace(/\.$/, "")
+                    : decimal(price, this.digits),
                   quantity: amount,
                   total,
                   side,
