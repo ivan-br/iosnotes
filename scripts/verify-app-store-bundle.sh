@@ -17,5 +17,5 @@ plutil -convert xml1 -o "$CHECK_DIR/info.plist" "$APP_PATH/Info.plist"
 node scripts/app-store-config.cjs verify \
   "$CHECK_DIR/info.plist" "$CHECK_DIR/entitlements.plist" "$CHECK_DIR/profile.plist"
 EXECUTABLE="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$APP_PATH/Info.plist")"
-xcrun lipo -verify_arch arm64 "$APP_PATH/$EXECUTABLE"
+xcrun lipo "$APP_PATH/$EXECUTABLE" -verify_arch arm64
 echo "Verified signed device app, SDK 26+, build number and privacy manifest."

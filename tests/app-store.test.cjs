@@ -126,6 +126,11 @@ test("bundle verification rejects old SDKs, wrong versions and debug signatures"
   assert.throws(() => validateBundle(info, { ...profile.Entitlements, "get-task-allow": true }, profile, team, "1.1.1"));
 });
 
+test("architecture check puts the executable before lipo's variadic architecture list", () => {
+  const source = fs.readFileSync("scripts/verify-app-store-bundle.sh", "utf8");
+  assert.ok(source.split("\n").includes('xcrun lipo "$APP_PATH/$EXECUTABLE" -verify_arch arm64'));
+});
+
 test("workflow keeps signed archive/export and optional upload separate from AltStore", () => {
   const source = fs.readFileSync(".github/workflows/build-ios-app-store.yml", "utf8");
   const workflow = YAML.parse(source);
