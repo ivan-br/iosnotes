@@ -17,6 +17,13 @@ expo-env.d.ts
 *.p12
 *.key
 *.mobileprovision
+*.provisionprofile
+*.cer
+*.keychain-db
+*.pfx
+*.ipa
+*.xcarchive/
+/build/
 
 # Metro
 .metro-health-check*

@@ -182,7 +182,7 @@ export default function OrderBookScreen() {
     <SafeAreaView style={styles.screen} onTouchStart={Keyboard.dismiss}>
       <View style={styles.header}>
         <View>
-          <Text style={styles.appName}>OrderBook</Text>
+          <Text style={styles.appName}>Stakan</Text>
           <Text style={styles.subtitle}>
             {exchangeLabels[exchange]} market data
           </Text>

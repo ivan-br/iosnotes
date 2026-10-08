@@ -1,0 +1,246 @@
+name: Build iOS App Store
+
+on:
+  workflow_dispatch:
+    inputs:
+      upload_to_testflight:
+        description: Upload the exported IPA to App Store Connect (does not submit for review)
+        type: boolean
+        required: true
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: orderbook-app-store
+  cancel-in-progress: false
+
+env:
+  # Explicitly pinned; fail instead of silently falling back to an older SDK.
+  DEVELOPER_DIR: /Applications/Xcode_26.2.app/Contents/Developer
+  CI: "1"
+
+jobs:
+  build:
+    runs-on: macos-26
+    environment: app-store
+    timeout-minutes: 90
+    outputs:
+      build_number: ${{ steps.configure.outputs.build_number }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Verify Xcode and SDK
+        run: |
+          test -d "$DEVELOPER_DIR"
+          xcodebuild -version
+          SDK=$(xcrun --sdk iphoneos --show-sdk-version)
+          XCODE=$(xcodebuild -version | awk '/^Xcode / {print $2}')
+          test "${XCODE%%.*}" -ge 26
+          test "${SDK%%.*}" -ge 26
+          echo "Building with Xcode $XCODE and iOS SDK $SDK"
+
+      - name: Check signing secrets before building
+        env:
+          CERTIFICATE: ${{ secrets.APPLE_DISTRIBUTION_P12_BASE64 }}
+          CERTIFICATE_PASSWORD: ${{ secrets.APPLE_DISTRIBUTION_P12_PASSWORD }}
+          PROFILE: ${{ secrets.APP_STORE_PROFILE_BASE64 }}
+          TEAM: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          for NAME in CERTIFICATE CERTIFICATE_PASSWORD PROFILE TEAM; do
+            if [ -z "${!NAME}" ]; then
+              echo "::error::Missing signing secret: $NAME. See docs/APP_STORE.md."
+              exit 1
+            fi
+          done
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20.19.4
+          cache: npm
+
+      - name: Install and test JavaScript
+        run: |
+          npm ci
+          npm test
+          npm run typecheck
+          node --test tests/app-store.test.cjs
+
+      - name: Generate iOS project and install Pods
+        run: |
+          npx expo prebuild --platform ios --clean --no-install
+          # Preserve the engine, architecture and native dependencies from Expo config.
+          cat ios/Podfile.properties.json
+          cd ios
+          pod --version
+          pod install
+
+      - name: Import signing material into temporary keychain
+        env:
+          CERTIFICATE: ${{ secrets.APPLE_DISTRIBUTION_P12_BASE64 }}
+          CERTIFICATE_PASSWORD: ${{ secrets.APPLE_DISTRIBUTION_P12_PASSWORD }}
+          PROFILE: ${{ secrets.APP_STORE_PROFILE_BASE64 }}
+        run: |
+          umask 077
+          mkdir -p "$RUNNER_TEMP/orderbook-signing"
+          KEYCHAIN="$RUNNER_TEMP/orderbook-signing/signing.keychain-db"
+          PASSWORD=$(openssl rand -hex 32)
+          echo "::add-mask::$PASSWORD"
+          printf '%s' "$CERTIFICATE" | base64 --decode > "$RUNNER_TEMP/orderbook-signing/certificate.p12"
+          printf '%s' "$PROFILE" | base64 --decode > "$RUNNER_TEMP/orderbook-signing/profile.mobileprovision"
+          security create-keychain -p "$PASSWORD" "$KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"
+          security unlock-keychain -p "$PASSWORD" "$KEYCHAIN"
+          security import "$RUNNER_TEMP/orderbook-signing/certificate.p12" \
+            -P "$CERTIFICATE_PASSWORD" -k "$KEYCHAIN" -t cert -f pkcs12 -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -k "$PASSWORD" "$KEYCHAIN" >/dev/null
+          security list-keychains -d user -s "$KEYCHAIN" "$HOME/Library/Keychains/login.keychain-db"
+          security find-identity -v -p codesigning "$KEYCHAIN" > "$RUNNER_TEMP/orderbook-signing/identities.txt"
+          security cms -D -i "$RUNNER_TEMP/orderbook-signing/profile.mobileprovision" > "$RUNNER_TEMP/orderbook-signing/profile.plist"
+
+      - name: Configure app-only signing and export options
+        id: configure
+        env:
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          PROJECTS=(ios/*.xcodeproj)
+          WORKSPACES=(ios/*.xcworkspace)
+          test "${#PROJECTS[@]}" -eq 1 && test -d "${PROJECTS[0]}"
+          test "${#WORKSPACES[@]}" -eq 1 && test -d "${WORKSPACES[0]}"
+          node scripts/app-store-config.cjs prepare "${PROJECTS[0]}/project.pbxproj" \
+            "$RUNNER_TEMP/orderbook-signing/profile.plist" \
+            "$RUNNER_TEMP/orderbook-signing/identities.txt" \
+            "$RUNNER_TEMP/orderbook-signing/exportOptions.plist"
+          echo "workspace=${WORKSPACES[0]}" >> "$GITHUB_OUTPUT"
+
+      - name: Install validated provisioning profile
+        env:
+          PROFILE_UUID: ${{ steps.configure.outputs.profile_uuid }}
+        run: |
+          for DIRECTORY in "$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles" "$HOME/Library/MobileDevice/Provisioning Profiles"; do
+            mkdir -p "$DIRECTORY"
+            cp "$RUNNER_TEMP/orderbook-signing/profile.mobileprovision" "$DIRECTORY/$PROFILE_UUID.mobileprovision"
+          done
+
+      - name: Archive signed Release for generic iOS device
+        env:
+          WORKSPACE: ${{ steps.configure.outputs.workspace }}
+          SCHEME: ${{ steps.configure.outputs.scheme }}
+        run: |
+          mkdir -p build/app-store
+          xcodebuild \
+            -workspace "$WORKSPACE" -scheme "$SCHEME" \
+            -configuration Release -sdk iphoneos -destination 'generic/platform=iOS' \
+            -derivedDataPath build/app-store/DerivedData \
+            -archivePath build/app-store/OrderBook.xcarchive \
+            OTHER_CODE_SIGN_FLAGS="--keychain $RUNNER_TEMP/orderbook-signing/signing.keychain-db" \
+            archive | tee build/app-store/archive.log
+
+      - name: Verify archive and export signed App Store IPA
+        env:
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          IOS_BUILD_NUMBER: ${{ steps.configure.outputs.build_number }}
+        run: |
+          APPS=(build/app-store/OrderBook.xcarchive/Products/Applications/*.app)
+          test "${#APPS[@]}" -eq 1 && test -d "${APPS[0]}"
+          bash scripts/verify-app-store-bundle.sh "${APPS[0]}"
+          xcodebuild -exportArchive \
+            -archivePath build/app-store/OrderBook.xcarchive \
+            -exportOptionsPlist "$RUNNER_TEMP/orderbook-signing/exportOptions.plist" \
+            -exportPath build/app-store/export | tee build/app-store/export.log
+          IPAS=(build/app-store/export/*.ipa)
+          test "${#IPAS[@]}" -eq 1 && test -f "${IPAS[0]}"
+          mkdir -p "$RUNNER_TEMP/orderbook-export-check"
+          ditto -x -k "${IPAS[0]}" "$RUNNER_TEMP/orderbook-export-check"
+          APPS=("$RUNNER_TEMP/orderbook-export-check"/Payload/*.app)
+          test "${#APPS[@]}" -eq 1 && test -d "${APPS[0]}"
+          bash scripts/verify-app-store-bundle.sh "${APPS[0]}"
+
+      - name: Save signed IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: OrderBook-AppStore-${{ steps.configure.outputs.build_number }}
+          path: build/app-store/export/*.ipa
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Save debug symbols
+        uses: actions/upload-artifact@v4
+        with:
+          name: OrderBook-dSYMs-${{ steps.configure.outputs.build_number }}
+          path: build/app-store/OrderBook.xcarchive/dSYMs
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Save build diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: OrderBook-build-logs-${{ github.run_id }}-${{ github.run_attempt }}
+          path: build/app-store/*.log
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Remove signing material
+        if: always()
+        env:
+          PROFILE_UUID: ${{ steps.configure.outputs.profile_uuid }}
+        run: |
+          security delete-keychain "$RUNNER_TEMP/orderbook-signing/signing.keychain-db" || true
+          if [ -n "$PROFILE_UUID" ]; then
+            rm -f "$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles/$PROFILE_UUID.mobileprovision"
+            rm -f "$HOME/Library/MobileDevice/Provisioning Profiles/$PROFILE_UUID.mobileprovision"
+          fi
+          rm -rf "$RUNNER_TEMP/orderbook-signing" "$RUNNER_TEMP/orderbook-export-check"
+
+  upload:
+    name: Upload to App Store Connect
+    needs: build
+    if: ${{ inputs.upload_to_testflight }}
+    runs-on: macos-26
+    environment: app-store-upload
+    timeout-minutes: 30
+    steps:
+      - name: Download signed IPA
+        uses: actions/download-artifact@v4
+        with:
+          name: OrderBook-AppStore-${{ needs.build.outputs.build_number }}
+          path: app-store-ipa
+
+      - name: Validate and upload using App Store Connect API key
+        shell: bash
+        env:
+          ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
+          ASC_API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
+          ASC_API_PRIVATE_KEY_BASE64: ${{ secrets.ASC_API_PRIVATE_KEY_BASE64 }}
+        run: |
+          : "${ASC_API_KEY_ID:?Missing ASC_API_KEY_ID}"
+          : "${ASC_API_ISSUER_ID:?Missing ASC_API_ISSUER_ID}"
+          : "${ASC_API_PRIVATE_KEY_BASE64:?Missing ASC_API_PRIVATE_KEY_BASE64}"
+          [[ "$ASC_API_KEY_ID" =~ ^[A-Z0-9]{10}$ ]]
+          [[ "$ASC_API_ISSUER_ID" =~ ^[a-fA-F0-9-]{36}$ ]]
+          umask 077
+          export API_PRIVATE_KEYS_DIR="$RUNNER_TEMP/orderbook-upload-keys"
+          mkdir -p "$API_PRIVATE_KEYS_DIR"
+          trap 'rm -rf "$API_PRIVATE_KEYS_DIR"' EXIT
+          printf '%s' "$ASC_API_PRIVATE_KEY_BASE64" | base64 --decode > "$API_PRIVATE_KEYS_DIR/AuthKey_$ASC_API_KEY_ID.p8"
+          IPAS=(app-store-ipa/*.ipa)
+          test "${#IPAS[@]}" -eq 1 && test -f "${IPAS[0]}"
+          xcrun altool --validate-app --type ios --file "${IPAS[0]}" \
+            --apiKey "$ASC_API_KEY_ID" --apiIssuer "$ASC_API_ISSUER_ID"
+          xcrun altool --upload-app --type ios --file "${IPAS[0]}" \
+            --apiKey "$ASC_API_KEY_ID" --apiIssuer "$ASC_API_ISSUER_ID"
+          echo 'Upload accepted by transport. Check Apple processing in App Store Connect; this is not an App Store release.' >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Remove upload key
+        if: always()
+        shell: bash
+        run: rm -rf "$RUNNER_TEMP/orderbook-upload-keys"

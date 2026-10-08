@@ -11,9 +11,9 @@ process.stdin.on("data", part => text += part);
 process.stdin.on("end", () => {
   const plist = JSON.parse(text);
   const schemes = (plist.CFBundleURLTypes || []).flatMap(item => item.CFBundleURLSchemes || []);
-  if (plist.CFBundleDisplayName !== "OrderBook" || plist.CFBundleIdentifier !== "com.softddev.iosnotes" || !schemes.includes("orderbook")) {
+  if (plist.CFBundleDisplayName !== "Stakan" || plist.CFBundleIdentifier !== "com.softdev.orderbook" || !schemes.includes("orderbook")) {
     console.error("Incorrect display name, bundle identifier or Router URL scheme.");
     process.exit(1);
   }
 });'
-echo "Verified OrderBook executable, assets, JavaScript and URL scheme."
+echo "Verified Stakan executable, assets, JavaScript and URL scheme."

@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "OrderBook",
+    "name": "Stakan",
     "slug": "order-book",
     "scheme": "orderbook",
     "version": "1.0.0",
@@ -18,7 +18,7 @@
       "backgroundColor": "#000000"
     },
     "ios": {
-      "bundleIdentifier": "com.softddev.iosnotes",
+      "bundleIdentifier": "com.softdev.orderbook",
       "jsEngine": "jsc",
       "supportsTablet": true
     },
