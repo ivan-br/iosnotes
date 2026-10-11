@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="Privacy policy and support contact for Stakan, a read-only cryptocurrency market data app by Ivan Brovenko.">
+    <meta name="referrer" content="no-referrer">
+    <title>Stakan | Privacy Policy &amp; Support</title>
+    <link rel="icon" href="icon.png" type="image/png">
+    <style>
+      :root { color-scheme: light; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #202429; background: #fff; line-height: 1.7; letter-spacing: 0; }
+      * { box-sizing: border-box; }
+      body { margin: 0; }
+      a { color: #006c61; text-underline-offset: .2em; overflow-wrap: anywhere; }
+      a:hover { color: #00483f; }
+      a:focus-visible { outline: 3px solid #ba3157; outline-offset: 5px; }
+      .wrap { max-width: 800px; margin: 0 auto; padding: 0 24px; }
+      .skip { position: absolute; left: 16px; top: -100px; background: #fff; padding: 8px; }
+      .skip:focus { top: 8px; }
+      header { border-bottom: 1px solid #dde3e1; padding: 28px 0; }
+      .brand { display: flex; align-items: center; gap: 14px; }
+      .brand img { width: 48px; height: 48px; border-radius: 8px; }
+      .brand strong { font-size: 26px; line-height: 1.2; }
+      .brand p { margin: 2px 0 0; font-size: 14px; color: #58625e; }
+      nav { display: flex; flex-wrap: wrap; gap: 12px 24px; margin-top: 22px; font-size: 15px; }
+      main { padding-top: 40px !important; padding-bottom: 48px !important; }
+      h1 { margin: 0; font-size: 34px; line-height: 1.25; }
+      h2 { margin: 0 0 12px; font-size: 21px; line-height: 1.4; }
+      p { margin: 12px 0; }
+      ul { padding-left: 24px; }
+      li + li { margin-top: 8px; }
+      section { margin-top: 34px; scroll-margin-top: 20px; }
+      .updated { font-size: 14px; color: #58625e; margin: 12px 0 24px; }
+      .summary { border-left: 3px solid #00796b; padding-left: 18px; }
+      #support { border-top: 1px solid #dde3e1; padding-top: 30px; }
+      footer { border-top: 1px solid #dde3e1; padding: 24px 0; color: #58625e; font-size: 14px; }
+      @media (max-width: 420px) { .wrap { padding-left: 20px; padding-right: 20px; } }
+      @media print { nav, .skip { display: none; } main { padding-top: 20px !important; } }
+    </style>
+  </head>
+  <body>
+    <a class="skip" href="#privacy">Skip to privacy policy</a>
+    <header>
+      <div class="wrap">
+        <div class="brand">
+          <img src="icon.png" alt="" width="48" height="48">
+          <div><strong>Stakan</strong><p>Read-only cryptocurrency market data</p></div>
+        </div>
+        <nav aria-label="Page navigation">
+          <a href="#privacy">Privacy policy</a>
+          <a href="#providers">Data providers</a>
+          <a href="#support">Support &amp; contact</a>
+        </nav>
+      </div>
+    </header>
+    <main class="wrap" id="privacy">
+      <h1>Privacy policy</h1>
+      <p class="updated">Last updated: October 11, 2026</p>
+      <p>This policy explains how information is handled by Stakan and this support website. Stakan is developed by Ivan Brovenko ("I", "me", or "the developer").</p>
+      <p class="summary">Stakan displays public order books and market ratios. It does not execute trades, hold funds, provide a wallet, or require an account or exchange API key. The app connects directly to third-party market data services.</p>
+
+      <section aria-labelledby="app-data-title">
+        <h2 id="app-data-title">1. Information handled by the app</h2>
+        <p>The current app does not send usage data to a developer-operated server and has no advertising or third-party analytics SDK. It does not request access to your contacts, photos, camera, microphone, or precise location.</p>
+        <p>Exchange, market, symbol, and price-step selections are held in app memory to display the requested information. Stakan does not maintain a user account or a developer-side history of these selections. Market requests do disclose relevant symbols and request parameters to the provider receiving them, as described below.</p>
+      </section>
+
+      <section id="providers" aria-labelledby="providers-title">
+        <h2 id="providers-title">2. Connections to Binance and Bybit</h2>
+        <p>While active, Stakan requests instrument catalogs from both Binance and Bybit, even if only one exchange is selected. It then requests order-book updates or market ratios for the selected view using HTTPS and secure WebSocket connections.</p>
+        <p>These providers receive your IP address, requested API endpoints and parameters, connection times, and technical information normally included in network requests. They may process or retain connection logs under their own policies, including for security, rate limiting, and regional access controls. Your IP address may reveal an approximate location. Stakan does not add your name, email, exchange credentials, or an advertising identifier to these requests.</p>
+        <p>I do not receive the exchanges' connection logs and cannot promise that their processing is limited to the time needed to return a response. Their privacy practices and retention periods are governed by their policies:</p>
+        <ul>
+          <li><a href="https://www.binance.com/en/privacy">Binance privacy policy</a></li>
+          <li><a href="https://www.bybit.com/en/legal/policies-and-rules/privacy-policy">Bybit privacy policy</a></li>
+        </ul>
+        <p>These services may process information outside your country. Provider availability can vary by region. Stakan is an independent application and is not affiliated with or endorsed by Binance or Bybit.</p>
+      </section>
+
+      <section aria-labelledby="support-data-title">
+        <h2 id="support-data-title">3. Support emails and diagnostics</h2>
+        <p>If you email me, I receive your email address and whatever you include in your message, such as your name, screenshots, or technical details. I use this information to respond, investigate problems, and handle privacy requests. Please do not send passwords, API keys, wallet recovery phrases, payment details, or other unnecessary sensitive information.</p>
+        <p>Support email is handled through Gmail and is subject to <a href="https://policies.google.com/privacy">Google's privacy policy</a>. Correspondence is retained only as long as needed to resolve your request, follow up on the issue, or meet applicable legal obligations. You can request deletion using the contact address below.</p>
+        <p>For App Store installations, Apple may make diagnostics and usage statistics available under its services and your applicable settings. For TestFlight beta installations, Apple automatically collects and shares crash logs and usage information with the developer; this can include device details and, depending on the invitation method, your name and email. Feedback you submit through TestFlight is also shared with me.</p>
+        <p>I use these reports only to troubleshoot and improve Stakan, not for advertising, and do not share TestFlight reports with third parties. Any copies I retain are kept only as long as needed to investigate and resolve the relevant issues or meet legal obligations. Apple controls retention in its own systems. See <a href="https://www.apple.com/legal/privacy/">Apple's privacy information</a> and <a href="https://www.apple.com/legal/privacy/data/en/test-flight/">TestFlight privacy information</a>.</p>
+      </section>
+
+      <section aria-labelledby="website-title">
+        <h2 id="website-title">4. This website</h2>
+        <p>This page is prepared for hosting on GitHub Pages. The page itself contains no analytics scripts, advertising, forms, tracking pixels, or embedded third-party content. Its text, styling, and app icon are served as static files.</p>
+        <p>When you visit the hosted page, GitHub receives technical request information, including your IP address, and may retain it for security and operation of its service. See the <a href="https://docs.github.com/en/site-policy/privacy-policies/github-general-privacy-statement">GitHub privacy statement</a>. Following an external link takes you to a service with its own privacy practices.</p>
+      </section>
+
+      <section aria-labelledby="choices-title">
+        <h2 id="choices-title">5. Your choices and rights</h2>
+        <p>You can stop the app's market-data connections by closing the app. There is no Stakan account to delete. Uninstalling Stakan removes the app from your device but does not delete support correspondence or records held independently by third-party providers.</p>
+        <p>Depending on applicable law, you may have rights to access, correct, delete, restrict, object to processing of, or receive a copy of personal information I hold. Contact me to make a request. You may also have the right to complain to your local data-protection authority. Requests concerning information held independently by Binance, Bybit, GitHub, Google, or Apple should be directed to the relevant provider.</p>
+        <p>I do not sell personal information or use it for targeted advertising. Personal information received through support or diagnostics is used only for the purposes described here. It may be disclosed where legally required. No method of internet transmission or storage can be guaranteed completely secure.</p>
+      </section>
+
+      <section aria-labelledby="children-title">
+        <h2 id="children-title">6. Children</h2>
+        <p>Stakan is a general market-data utility, not a service directed specifically at children. It does not ask users to submit personal information inside the app. If you believe a child has sent me personal information, contact me so I can address it and delete it where appropriate.</p>
+      </section>
+
+      <section aria-labelledby="changes-title">
+        <h2 id="changes-title">7. Changes to this policy</h2>
+        <p>This policy will be updated if Stakan's functionality or information handling changes. The date at the top identifies the latest revision. Material changes will be communicated through this page and, where appropriate, the app or its release information.</p>
+      </section>
+
+      <section id="support" aria-labelledby="support-title">
+        <h2 id="support-title">Support &amp; privacy contact</h2>
+        <p>Developer: Ivan Brovenko<br>Email: <a href="mailto:ivanrichards111@gmail.com">ivanrichards111@gmail.com</a></p>
+        <p>For a technical issue, include your Stakan version, device model, iOS version, and a description of what happened. Include the selected exchange and symbol if relevant, but omit sensitive information.</p>
+        <p>Market data is provided for information only, may be delayed or unavailable, and is not investment advice.</p>
+      </section>
+    </main>
+    <footer><div class="wrap">&copy; 2026 Ivan Brovenko. Stakan.</div></footer>
+  </body>
+</html>
